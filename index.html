@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SIGNAL DESK — 비트코인·리플·이더리움 거래소 7곳 시그널</title>
+    <meta
+      name="description"
+      content="업비트·빗썸·코인원·바이낸스·Bybit·코인베이스·크라켄 일곱 거래소의 시세로 RSI·MACD·이동평균·볼린저밴드·거래량을 계산해 매수/매도 시그널과 거래소 합의도를 실시간으로 보여줍니다."
+    />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">SIGNAL</span>
+        <span class="brand-name">DESK</span>
+        <p class="brand-sub">국내 3곳 · 해외 4곳 실시간 시그널</p>
+      </div>
+      <div class="status">
+        <button id="coin-toggle" type="button" class="coin-toggle" aria-expanded="false">
+          종목
+        </button>
+        <button id="pause-toggle" type="button" class="coin-toggle" aria-pressed="false">
+          일시정지
+        </button>
+        <span id="fx-rate" class="fx">USDT —</span>
+        <span id="clock" class="clock">연결 중</span>
+        <div id="exchange-status" class="feeds" aria-label="거래소 연결 상태"></div>
+      </div>
+    </header>
+
+    <div id="coin-panel" class="coin-panel" aria-label="감시 종목 선택" hidden></div>
+
+    <div id="banner" class="banner" role="status" hidden></div>
+
+    <main>
+      <section class="cards" id="cards" aria-label="종목별 시그널"></section>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2 id="chart-title">BTC/KRW</h2>
+          <div class="tab-group">
+            <span class="tab-caption">거래소</span>
+            <div id="exchange-tabs" class="tabs" role="tablist" aria-label="거래소"></div>
+          </div>
+          <div class="tab-group">
+            <span class="tab-caption">주기</span>
+            <div id="timeframe-tabs" class="tabs" role="tablist" aria-label="봉 주기"></div>
+          </div>
+          <div class="tab-group">
+            <span class="tab-caption">보조</span>
+            <div id="sub-tabs" class="tabs" role="tablist" aria-label="보조 지표"></div>
+          </div>
+          <ul class="legend">
+            <li><i class="swatch ma-short"></i>MA20</li>
+            <li><i class="swatch ma-long"></i>MA60</li>
+            <li><i class="swatch band"></i>볼린저 20, 2σ</li>
+            <li><i class="swatch volume"></i>거래량</li>
+          </ul>
+        </header>
+        <div id="chart" class="chart-host"></div>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2>거래소 합의</h2>
+          <p class="hint">거래소들이 같은 방향을 가리키는지 봅니다. 행을 누르면 아래 상세가 바뀝니다.</p>
+        </header>
+        <div id="grid" class="grid-host"></div>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2 id="detail-title">지표 상세</h2>
+          <p class="hint">
+            카테고리 안에서는 단순 평균, 카테고리 사이에만 가중을 둡니다. ADX 국면에 따라 가중이
+            자동으로 조정됩니다.
+          </p>
+        </header>
+        <div id="detail" class="matrix-host"></div>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2 id="news-title">코인 뉴스</h2>
+          <p class="hint">
+            선택한 종목이 언급된 기사가 위로 옵니다. 걸린 키워드를 함께 표시하니 점수를 직접
+            확인하실 수 있습니다.
+          </p>
+        </header>
+        <div id="news" class="news-host"></div>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2>전환 기록</h2>
+          <p class="hint">등급이 바뀐 순간과 그때의 주요 근거입니다.</p>
+          <button id="transitions-clear" type="button" class="panel-action" hidden>기록 지우기</button>
+        </header>
+        <div id="transitions" class="timeline-host"></div>
+      </section>
+    </main>
+
+    <footer class="disclaimer">
+      <p>
+        업비트·빗썸·코인원·바이낸스·Bybit·코인베이스·크라켄의 공개 시장 데이터에 기술적 지표를
+        적용한 계산 결과입니다. 투자 자문이 아니며 미래 가격을 예측하지 않습니다.
+      </p>
+      <p>
+        <strong>코인원</strong>은 공개 API가 CORS를 허용하지 않아 브라우저에서 캔들을 받을 수
+        없습니다. WebSocket은 제약이 없으므로 시세만 표시하고 지표 판정에서는 제외합니다. 거래소별
+        일봉 시작 시각도 다릅니다 — 업비트는 09:00 KST, 빗썸은 00:00 KST 기준이라 같은 종목의
+        일봉 지표가 서로 다를 수 있습니다.
+      </p>
+      <p>
+        시그널은 <strong>12개 지표를 5개 카테고리</strong>로 묶어 계산합니다. 카테고리 안에서는
+        단순 평균을 쓰고 카테고리 사이에만 가중을 두어, 이동평균 계열처럼 서로 닮은 지표가 같은
+        근거를 여러 번 세지 않게 합니다. <strong>ADX</strong>로 추세장·횡보장을 판별해 추세 지표와
+        역추세 지표의 가중을 자동 조정합니다 — 추세장의 과매수는 매도 신호가 아니기 때문입니다.
+        <strong>실시간 수급</strong>(호가 불균형·체결강도)과 <strong>시장 심리</strong>(공포탐욕지수·뉴스·커뮤니티
+        투표·검색 관심도)는 캔들이 없는 지표라 봉 주기와 무관하게 계산하며, 캔들 3.7 : 수급 1.0 :
+        심리 0.6 으로 합칩니다(수급 18.9%, 심리 11.3%).
+      </p>
+      <p>
+        <strong>뉴스 심리는 키워드 사전 방식입니다.</strong> 브라우저에서 언어 모델을 돌릴 수 없어
+        한글·영문 키워드에 가중을 매겨 합산하며, <code>하락 우려 해소</code>처럼 부정어가 해소되는
+        표현은 무효로 처리합니다. 그래도 문맥을 오해할 수 있으므로 가중을 가장 낮게(0.6) 두고
+        걸린 키워드와 헤드라인을 그대로 보여줍니다 — <strong>이 값을 신뢰도 높은 신호로 취급하지
+        마십시오.</strong> 공포탐욕지수는 가격 모멘텀·변동성이 이미 다른 지표와 겹치므로 역추세
+        신호로만 씁니다(극단적 탐욕은 과열 주의, 극단적 공포는 저가 기회).
+      </p>
+      <p>
+        뉴스는 <code>python3 serve.py</code> 로 띄울 때만 표시됩니다. RSS 는 어느 매체도 CORS 를
+        열어주지 않아 브라우저가 직접 읽을 수 없어, 같은 서버가 중계합니다. 순수 정적 서버로
+        띄우면 시장 심리 카테고리만 빠지고 나머지는 그대로 동작합니다.
+      </p>
+      <p>
+        <strong>USDT 기준 괴리</strong>는 업비트 원화 가격을 업비트 KRW-USDT 시장가로 환산한 해외
+        가격과 비교한 값입니다. 흔히 말하는 김치 프리미엄은 은행 USD/KRW 환율을 쓰기 때문에 USDT
+        자체의 프리미엄까지 포함해 보통 1~3%로 나오지만, 여기서는 그 성분을 걷어낸 거래소 사이의
+        순수 가격 차이만 재므로 평소 0% 근처입니다. 시그널 점수에는 반영하지 않습니다.
+      </p>
+    </footer>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>

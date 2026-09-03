@@ -1,0 +1,1893 @@
+/*
+ * 업비트풍 다크 트레이딩 UI.
+ * 색은 한국 시장 관례를 따른다 — 상승·매수는 빨강, 하락·매도는 파랑.
+ */
+
+:root {
+  --bg: #0d0e12;
+  --panel: #15171d;
+  --panel-2: #1a1d25;
+  --line: #232733;
+  --line-soft: #1d212a;
+  --text: #e8eaf0;
+  --text-dim: #a6adbd;
+  --muted: #7c8395;
+  --rise: #f0473e;
+  --fall: #2f7cf6;
+  --flat: #6b7386;
+  --focus: #7aa2ff;
+
+  --font-text: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic',
+    'Noto Sans KR', 'Segoe UI', Roboto, sans-serif;
+  /* 수치는 고정폭으로 잡아 갱신될 때 자리가 흔들리지 않게 한다. */
+  --font-num: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono',
+    monospace;
+
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/*
+ * hidden 속성은 UA 스타일시트의 display:none 으로 동작하므로, 작성자 CSS가
+ * 같은 요소에 display 를 선언하면 조용히 무력화된다(.banner 가 그 경우다).
+ */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ── 상단바 ──────────────────────────────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 22px 20px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.brand-mark {
+  font-family: var(--font-num);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--rise);
+}
+
+.brand-name {
+  font-family: var(--font-num);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: var(--text);
+}
+
+.brand-sub {
+  margin: 0 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.clock {
+  font-family: var(--font-num);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.fx {
+  font-family: var(--font-num);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  padding-right: 10px;
+  border-right: 1px solid var(--line);
+}
+
+/* 거래소별 연결 상태. 지금 보는 값의 출처가 실시간인지 폴링인지 드러내야 한다. */
+.feeds {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.feed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.feed-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--flat);
+}
+
+.feed-state {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.feed-live .feed-dot {
+  background: #33c76a;
+  box-shadow: 0 0 0 3px rgba(51, 199, 106, 0.16);
+}
+
+.feed-live {
+  border-color: #2a4433;
+}
+
+.feed-connecting .feed-dot {
+  background: #e3b341;
+}
+
+.feed-polling .feed-dot {
+  background: #e3b341;
+}
+
+.feed-down .feed-dot {
+  background: var(--fall);
+}
+
+/* ── 배너 ────────────────────────────────────────────────── */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 1240px;
+  margin: 12px auto 0;
+  padding: 9px 14px;
+  border: 1px solid #4a3a20;
+  border-radius: var(--radius);
+  background: #22190d;
+  color: #f0c986;
+  font-size: 13px;
+}
+
+.banner-retry {
+  margin-left: auto;
+  border: 1px solid #5c4826;
+  background: transparent;
+  color: #f0c986;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+/* ── 레이아웃 ────────────────────────────────────────────── */
+
+main {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 18px 20px 8px;
+  display: grid;
+  /*
+   * minmax(0, 1fr) 이 아니면 그리드 항목의 자동 최소 크기(min-content)가
+   * 컬럼을 밀어 올린다. 차트 SVG 는 고유 폭을 가지므로 renderChart 가 읽은
+   * clientWidth 가 그대로 컬럼 폭이 되어 다시는 줄어들지 않는 되먹임이 생긴다.
+   */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.cards {
+  display: grid;
+  /* min() 이 없으면 뷰포트가 280px 미만일 때 트랙이 줄지 못해 넘친다. */
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  gap: 12px;
+}
+
+.loading {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 40px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── 카드 ────────────────────────────────────────────────── */
+
+.card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 14px 16px 12px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.card:hover {
+  border-color: #333a4a;
+}
+
+.card.selected {
+  border-color: #46506a;
+  background: var(--panel-2);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.symbol {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.symbol strong {
+  font-family: var(--font-num);
+  font-size: 17px;
+  letter-spacing: 0.04em;
+}
+
+.symbol span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.grade {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.grade-strong-buy {
+  color: #fff;
+  background: var(--rise);
+}
+.grade-buy {
+  color: var(--rise);
+  background: rgba(240, 71, 62, 0.12);
+  border-color: rgba(240, 71, 62, 0.45);
+}
+.grade-neutral {
+  color: var(--text-dim);
+  background: rgba(124, 131, 149, 0.14);
+  border-color: rgba(124, 131, 149, 0.4);
+}
+.grade-sell {
+  color: #6fa4ff;
+  background: rgba(47, 124, 246, 0.12);
+  border-color: rgba(47, 124, 246, 0.45);
+}
+.grade-strong-sell {
+  color: #fff;
+  background: var(--fall);
+}
+.grade-unknown {
+  color: var(--muted);
+  background: rgba(124, 131, 149, 0.1);
+  border-color: var(--line);
+}
+
+.price-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 10px;
+}
+
+.price {
+  font-family: var(--font-num);
+  font-size: 23px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.delta {
+  font-family: var(--font-num);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.rise {
+  color: var(--rise);
+}
+.fall {
+  color: var(--fall);
+}
+.even {
+  color: var(--text-dim);
+}
+
+/* ── 시그널 점수와 합의도 ────────────────────────────────── */
+
+/*
+ * 두 값은 서로 다른 것을 잰다. 점수는 세 거래소의 등가중 평균이고, 합의도는
+ * 거래소들이 서로 같은 방향을 가리키는 정도다. 그래서 한 줄에 나란히 두되
+ * 시각적으로 분리한다.
+ */
+.signal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.signal-score {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.signal-score strong {
+  font-family: var(--font-num);
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.signal-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.signal-score .unit {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.agreement {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.agreement-count {
+  font-family: var(--font-num);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.agreement-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #363d4d;
+}
+
+.dot.on {
+  background: var(--text-dim);
+}
+
+.agreement-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.agreement-full {
+  border-color: #2a4433;
+}
+
+.agreement-full .dot.on {
+  background: #33c76a;
+}
+
+.agreement-split .dot.on {
+  background: #e3b341;
+}
+
+/* ── 시그니처: 공유 축 게이지 ────────────────────────────── */
+
+.gauge {
+  margin-top: 11px;
+}
+
+.tone-strong-buy,
+.tone-buy {
+  color: var(--rise);
+}
+.tone-neutral,
+.tone-unknown {
+  color: var(--text-dim);
+}
+.tone-sell,
+.tone-strong-sell {
+  color: var(--fall);
+}
+
+.gauge-track {
+  position: relative;
+  height: 22px;
+  margin-top: 7px;
+  border-radius: 3px;
+  /* 축 자체가 매도(파랑)—중립—매수(빨강) 방향을 말한다. */
+  background: linear-gradient(
+    90deg,
+    rgba(47, 124, 246, 0.5) 0%,
+    rgba(47, 124, 246, 0.12) 34%,
+    rgba(124, 131, 149, 0.12) 50%,
+    rgba(240, 71, 62, 0.12) 66%,
+    rgba(240, 71, 62, 0.5) 100%
+  );
+}
+
+.gauge-zero {
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: #4b5265;
+}
+
+/* 거래소 마커 — 같은 축에 얹어 합의/이견을 드러낸다. */
+.gauge-tick {
+  position: absolute;
+  top: 2px;
+  width: 2px;
+  height: 8px;
+  margin-left: -1px;
+  border-radius: 1px;
+  opacity: 0.9;
+}
+
+/*
+ * 거래소 색은 커스텀 속성 하나(--ex)로만 정의한다. 게이지 마커는 background 로,
+ * 카드 셀은 왼쪽 띠로, 격자는 작은 점으로 같은 값을 쓰기 때문에 색을 여러 규칙에
+ * 흩어 두면 한 곳만 고쳐 어긋난다.
+ */
+.tick-upbit {
+  --ex: #6fa4ff;
+}
+.tick-bithumb {
+  --ex: #f5822a;
+}
+.tick-coinone {
+  --ex: #a371f7;
+}
+.tick-binance {
+  --ex: #e3b341;
+}
+.tick-bybit {
+  --ex: #56d4dd;
+}
+.tick-coinbase {
+  --ex: #4d7cfe;
+}
+.tick-kraken {
+  --ex: #5cc98a;
+}
+
+.gauge-tick {
+  background: var(--ex, #aab2c4);
+}
+
+.grid-swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 2px;
+  background: var(--ex, var(--flat));
+}
+
+.gauge-marker {
+  position: absolute;
+  top: 11px;
+  bottom: 1px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(13, 14, 18, 0.85);
+}
+
+.gauge-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+/*
+ * 거래소별 점수 압축 격자. 거래소가 7곳이 되면서 한 줄씩 쌓는 방식은 카드를
+ * 세 배로 늘려 놓았다. 시세와 봉 주기별 점수는 아래 합의 격자가 담당한다.
+ */
+.feed-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 4px;
+  margin: 12px 0 0;
+  padding: 11px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--line-soft);
+}
+
+.feed-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  /* 왼쪽 띠 색이 게이지 위 마커 색과 같아 카드와 축이 눈으로 연결된다. */
+  border-left: 2px solid var(--ex, var(--line));
+}
+
+.feed-cell-name {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feed-cell-score {
+  font-family: var(--font-num);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 11px;
+}
+
+.card-meta dt {
+  color: var(--muted);
+}
+
+.card-meta dd {
+  margin: 0;
+  text-align: right;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.card-meta .meta-note {
+  font-family: var(--font-text);
+  font-size: 10px;
+  color: #5d6473;
+}
+
+/* ── 체결 플래시 ─────────────────────────────────────────── */
+
+/*
+ * 값이 바뀐 순간을 짧게 드러내 실시간임을 알린다. DOM 을 다시 만들 때 클래스가
+ * 붙으므로 애니메이션이 한 번만 재생된다.
+ */
+@keyframes flash-up {
+  from {
+    background: rgba(240, 71, 62, 0.28);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+@keyframes flash-down {
+  from {
+    background: rgba(47, 124, 246, 0.28);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.flash-up {
+  animation: flash-up 0.55s ease-out;
+  border-radius: 3px;
+}
+
+.flash-down {
+  animation: flash-down 0.55s ease-out;
+  border-radius: 3px;
+}
+
+/* ── 차트 ────────────────────────────────────────────────── */
+
+/* 탭 묶음이 둘이라 라벨 없이는 어느 축을 고르는 것인지 구분되지 않는다. */
+.tab-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.tab-caption {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+}
+
+.tab {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 5px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.tab.active {
+  background: #262c39;
+  color: var(--text);
+}
+
+.legend {
+  display: flex;
+  gap: 14px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.swatch {
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.swatch.ma-short {
+  background: #e3b341;
+}
+.swatch.ma-long {
+  background: #a371f7;
+}
+.swatch.band {
+  height: 8px;
+  background: rgba(125, 137, 168, 0.28);
+  border-top: 1px solid rgba(125, 137, 168, 0.6);
+  border-bottom: 1px solid rgba(125, 137, 168, 0.6);
+}
+
+.chart-host {
+  position: relative;
+  padding: 6px 10px 2px;
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+.chart-empty {
+  margin: 0;
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.grid-line {
+  stroke: var(--line-soft);
+  stroke-width: 1;
+}
+
+.axis-label {
+  fill: var(--muted);
+  font-family: var(--font-num);
+  font-size: 10px;
+}
+
+.panel-title {
+  fill: var(--muted);
+  font-family: var(--font-num);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.bb-fill {
+  fill: rgba(125, 137, 168, 0.09);
+}
+
+.bb-line {
+  fill: none;
+  stroke: rgba(125, 137, 168, 0.45);
+  stroke-width: 1;
+}
+
+.ma {
+  fill: none;
+  stroke-width: 1.3;
+}
+
+.ma-short {
+  stroke: #e3b341;
+}
+
+.ma-long {
+  stroke: #a371f7;
+}
+
+.wick {
+  stroke-width: 1;
+}
+
+.wick.rise,
+.body.rise {
+  stroke: var(--rise);
+  fill: var(--rise);
+}
+
+.wick.fall,
+.body.fall {
+  stroke: var(--fall);
+  fill: var(--fall);
+}
+
+.rsi-zone {
+  fill: rgba(125, 137, 168, 0.07);
+}
+
+.rsi-guide {
+  stroke: rgba(125, 137, 168, 0.35);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.rsi-line {
+  fill: none;
+  stroke: #56d4dd;
+  stroke-width: 1.3;
+}
+
+.crosshair {
+  visibility: hidden;
+}
+
+.crosshair.on {
+  visibility: visible;
+}
+
+.crosshair-line {
+  stroke: #6b7386;
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.chart-tooltip {
+  position: absolute;
+  z-index: 2;
+  min-width: 150px;
+  padding: 9px 11px;
+  border: 1px solid #333a4a;
+  border-radius: 8px;
+  background: rgba(19, 21, 27, 0.96);
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.tt-time {
+  margin-bottom: 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-num);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.chart-tooltip dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 11px;
+}
+
+.chart-tooltip dt {
+  color: var(--muted);
+}
+
+.chart-tooltip dd {
+  margin: 0;
+  text-align: right;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 거래소 합의 격자 ───────────────────────────────────── */
+
+.grid-host {
+  overflow-x: auto;
+}
+
+.grid-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.grid-table caption {
+  padding: 10px 16px 0;
+  text-align: left;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.grid-table th,
+.grid-table td {
+  padding: 9px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+
+.grid-table thead th {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border-bottom-color: var(--line);
+}
+
+.grid-table tbody tr {
+  cursor: pointer;
+}
+
+.grid-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.grid-table tbody tr.selected {
+  background: rgba(122, 162, 255, 0.07);
+}
+
+.grid-name {
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.grid-quote {
+  margin-left: 6px;
+  font-family: var(--font-num);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.grid-score {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-grade {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.grid-cell.buyish .grid-score {
+  color: var(--rise);
+}
+.grid-cell.sellish .grid-score {
+  color: var(--fall);
+}
+.grid-cell.flat .grid-score {
+  color: var(--text-dim);
+}
+
+.grid-cell.total {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.grid-price {
+  text-align: right;
+}
+
+.grid-price-value {
+  font-family: var(--font-num);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.grid-price-unit {
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.grid-unavailable {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: normal;
+}
+
+.feed-cell.price-only .feed-cell-score {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.grid-note {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: normal;
+}
+
+.grid-table tfoot th,
+.grid-table tfoot td {
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* ── 지표 상세 ───────────────────────────────────────────── */
+
+.matrix-host {
+  overflow-x: auto;
+}
+
+.matrix {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.matrix caption {
+  padding: 10px 16px 0;
+  text-align: left;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.matrix th,
+.matrix td {
+  padding: 9px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+
+.matrix thead th {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border-bottom-color: var(--line);
+}
+
+.matrix tbody th,
+.matrix tfoot th {
+  font-family: var(--font-num);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.weight {
+  font-family: var(--font-num);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cell {
+  display: table-cell;
+}
+
+.cell-verdict {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.cell-value,
+.cell-score {
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.cell-score {
+  margin-left: 7px;
+}
+
+.cell.buyish .cell-verdict {
+  color: var(--rise);
+}
+.cell.sellish .cell-verdict {
+  color: var(--fall);
+}
+.cell.flat .cell-verdict {
+  color: var(--text-dim);
+}
+
+.matrix tfoot td,
+.matrix tfoot th {
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.cell-total-score {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cell.total.buyish .cell-total-score {
+  color: var(--rise);
+}
+.cell.total.sellish .cell-total-score {
+  color: var(--fall);
+}
+.cell.total.flat .cell-total-score {
+  color: var(--text-dim);
+}
+
+/* ── 고지 ────────────────────────────────────────────────── */
+
+.disclaimer {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 16px 20px 32px;
+}
+
+.disclaimer p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+/* ── 좁은 화면 ───────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .topbar {
+    align-items: flex-start;
+    padding-top: 16px;
+  }
+
+  .legend {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .matrix th,
+  .matrix td {
+    padding: 8px 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ── 종목 선택 ───────────────────────────────────────────── */
+
+.coin-toggle {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 11.5px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.coin-toggle:hover,
+.coin-toggle[aria-expanded='true'] {
+  color: var(--text);
+  border-color: #3a4152;
+}
+
+.coin-panel {
+  display: grid;
+  gap: 10px;
+  max-width: 1240px;
+  margin: 12px auto 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.chosen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chosen-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border: 1px solid #3a4152;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.chip-x {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chosen-chip:hover .chip-x {
+  color: var(--rise);
+}
+
+.panel-search {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.catalog-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-dim);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.catalog-item:hover:not(:disabled) {
+  border-color: #3a4152;
+  color: var(--text);
+}
+
+.catalog-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.catalog-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.catalog-id {
+  font-family: var(--font-num);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.catalog-warning {
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(227, 179, 65, 0.16);
+  color: #e3b341;
+  font-size: 10px;
+}
+
+.catalog-added {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.catalog-empty {
+  grid-column: 1 / -1;
+  padding: 18px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.panel-hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.card-remove {
+  border: 0;
+  background: transparent;
+  color: #4b5265;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.card-remove:hover {
+  color: var(--rise);
+}
+
+.support {
+  margin-left: 2px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(227, 179, 65, 0.14);
+  color: #e3b341;
+  font-size: 10px;
+}
+
+/* ── 실시간 수급 ─────────────────────────────────────────── */
+
+.flow-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.flow-title {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.flow-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.flow-label {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.flow-value {
+  font-family: var(--font-num);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-item.buyish .flow-value {
+  color: var(--rise);
+}
+.flow-item.sellish .flow-value {
+  color: var(--fall);
+}
+
+/* ── 지표 상세: 카테고리 계층 ────────────────────────────── */
+
+.category-row > th {
+  font-family: var(--font-text) !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  color: var(--text) !important;
+}
+
+.category-row td {
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.indicator-row > th {
+  padding-left: 26px !important;
+  font-size: 11.5px !important;
+  color: var(--muted) !important;
+}
+
+.cell-category-score {
+  font-family: var(--font-num);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cell.category.buyish .cell-category-score {
+  color: var(--rise);
+}
+.cell.category.sellish .cell-category-score {
+  color: var(--fall);
+}
+.cell.category.flat .cell-category-score {
+  color: var(--text-dim);
+}
+
+.adjust {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--font-num);
+  font-size: 10px;
+}
+
+.adjust.up {
+  background: rgba(240, 71, 62, 0.14);
+  color: #ff8a80;
+}
+
+.adjust.down {
+  background: rgba(47, 124, 246, 0.14);
+  color: #8ab4ff;
+}
+
+.flow-cell {
+  white-space: normal !important;
+}
+
+.flow-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-right: 8px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.flow-chip-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.flow-chip-value,
+.flow-chip-score {
+  font-family: var(--font-num);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-chip.buyish .flow-chip-score {
+  color: var(--rise);
+}
+.flow-chip.sellish .flow-chip-score {
+  color: var(--fall);
+}
+
+.flow-note {
+  font-size: 10.5px;
+  color: #5d6473;
+}
+
+/* ── 전환 기록 ───────────────────────────────────────────── */
+
+.timeline-host {
+  padding: 6px 16px 14px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline-item {
+  display: flex;
+  gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.timeline-item:last-child {
+  border-bottom: 0;
+}
+
+.timeline-time {
+  flex: none;
+  font-family: var(--font-num);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.timeline-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.timeline-headline strong {
+  font-family: var(--font-num);
+  letter-spacing: 0.03em;
+}
+
+.timeline-arrow {
+  color: var(--muted);
+}
+
+.timeline-score {
+  font-family: var(--font-num);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.timeline-reasons {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.empty {
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tone-buy,
+.tone-strong-buy {
+  color: var(--rise);
+}
+.tone-sell,
+.tone-strong-sell {
+  color: var(--fall);
+}
+
+.signal-breakdown {
+  margin-left: 8px;
+  font-family: var(--font-num);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* ── 뉴스 패널 ───────────────────────────────────────────── */
+
+.news-host {
+  padding: 6px 16px 14px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.news-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.news-item {
+  padding: 9px 0 9px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  border-left: 2px solid transparent;
+}
+
+.news-item:last-child {
+  border-bottom: 0;
+}
+
+.news-item.buyish {
+  border-left-color: rgba(240, 71, 62, 0.5);
+}
+
+.news-item.sellish {
+  border-left-color: rgba(47, 124, 246, 0.5);
+}
+
+.news-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 3px;
+}
+
+.news-time,
+.news-score {
+  font-family: var(--font-num);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.news-source {
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.news-coin {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  font-family: var(--font-num);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.news-coin.current {
+  background: rgba(122, 162, 255, 0.16);
+  color: #a8c4ff;
+}
+
+.news-title {
+  display: block;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.news-title:hover {
+  text-decoration: underline;
+}
+
+.news-words {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.news-word {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.news-word.buyish {
+  background: rgba(240, 71, 62, 0.13);
+  color: #ff9a90;
+}
+
+.news-word.sellish {
+  background: rgba(47, 124, 246, 0.13);
+  color: #8ab4ff;
+}
+
+.sentiment-row {
+  margin-top: 7px;
+  padding-top: 7px;
+}
+
+.category-row.sentiment td {
+  background: rgba(122, 162, 255, 0.035);
+}
+
+/* ── 탐욕지수 ────────────────────────────────────────────── */
+
+.greed-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.greed-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.greed-chip.own {
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.greed-scope {
+  font-family: var(--font-num);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.greed-value {
+  font-family: var(--font-num);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.greed-label {
+  font-size: 10.5px;
+}
+
+/*
+ * 공포는 파랑, 탐욕은 빨강 — 화면 전체의 방향 색과 맞춘다. 다만 탐욕지수는
+ * 역추세로 읽는 값이므로 색이 곧 매수/매도를 뜻하지는 않는다.
+ */
+.greed-extreme-fear .greed-value,
+.greed-extreme-fear .greed-label {
+  color: #6fa4ff;
+}
+.greed-fear .greed-value,
+.greed-fear .greed-label {
+  color: #8ab4ff;
+}
+.greed-greed .greed-value,
+.greed-greed .greed-label {
+  color: #ff8a80;
+}
+.greed-extreme-greed .greed-value,
+.greed-extreme-greed .greed-label {
+  color: var(--rise);
+}
+.greed-unknown .greed-value,
+.greed-unknown .greed-label {
+  color: var(--muted);
+}
+
+.greed-bar {
+  position: relative;
+  flex: 1 1 70px;
+  min-width: 56px;
+  height: 5px;
+  border-radius: 3px;
+  background: #1f2430;
+  overflow: hidden;
+}
+
+.greed-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--flat);
+}
+
+.greed-fill.greed-extreme-fear {
+  background: #4d7cfe;
+}
+.greed-fill.greed-fear {
+  background: #6fa4ff;
+}
+.greed-fill.greed-greed {
+  background: #f0857c;
+}
+.greed-fill.greed-extreme-greed {
+  background: var(--rise);
+}
+
+.greed-parts {
+  font-family: var(--font-num);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: #5d6473;
+}
+
+.coin-toggle.paused {
+  border-color: #5c4826;
+  color: #f0c986;
+}
+
+/* ── 거래량 막대·보조 지표 ───────────────────────────────── */
+
+.vol {
+  opacity: 0.42;
+}
+
+.vol.rise {
+  fill: var(--rise);
+}
+
+.vol.fall {
+  fill: var(--fall);
+}
+
+.swatch.volume {
+  height: 7px;
+  background: rgba(240, 71, 62, 0.42);
+}
+
+.sub-zone {
+  fill: rgba(125, 137, 168, 0.07);
+}
+
+.sub-guide {
+  stroke: rgba(125, 137, 168, 0.35);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.macd-line {
+  fill: none;
+  stroke: #e3b341;
+  stroke-width: 1.3;
+}
+
+.macd-signal {
+  fill: none;
+  stroke: #a371f7;
+  stroke-width: 1.2;
+}
+
+.macd-bar.rise {
+  fill: rgba(240, 71, 62, 0.7);
+}
+
+.macd-bar.fall {
+  fill: rgba(47, 124, 246, 0.7);
+}
+
+.stoch-k {
+  fill: none;
+  stroke: #56d4dd;
+  stroke-width: 1.3;
+}
+
+.stoch-d {
+  fill: none;
+  stroke: #f5822a;
+  stroke-width: 1.2;
+}
+
+.panel-action {
+  margin-left: auto;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+}
+
+.panel-action:hover {
+  color: var(--text);
+  border-color: #3a4152;
+}
+
+.panel-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.panel-reset {
+  margin-left: auto;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.panel-reset:hover {
+  color: var(--text);
+  border-color: #3a4152;
+}
