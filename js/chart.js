@@ -6,6 +6,7 @@
  */
 
 import { bollinger, macd, rsi, sma, stochastic } from './indicators.js';
+import { detectPatterns } from './patterns.js';
 import { CHART_BARS, PERIODS } from './config.js';
 import {
   axisPriceFormatter,
@@ -110,10 +111,190 @@ function el(name, attrs = {}) {
 }
 
 /**
- * @param {HTMLElement} container position:relative 인 래퍼
- * @param {{candles: object[], timeframeKey: string, bars?: number}} options
+ * 스윙 탐지 간격. 봉이 몇 개 보이느냐에 맞춰 늘린다 — 80봉에서 쓰는 span
+ * 그대로 1095봉(3년치)에 적용하면 잔파도까지 전부 스윙으로 잡혀 패턴이
+ * 의미를 잃는다. 60봉당 1씩, 최소 3.
  */
-export function renderChart(container, { candles, timeframeKey, quote = 'KRW', bars = null, subPanel = 'rsi' }) {
+const swingSpanFor = (count) => Math.max(3, Math.round(count / 60));
+
+const fibAt = (fib, ratio) => fib.levels.find((level) => level.ratio === ratio)?.price ?? null;
+
+function levelLine(price, yOf, plotWidth, cls) {
+  const y = yOf(price);
+  return el('line', { x1: 0, y1: y, x2: plotWidth, y2: y, class: cls });
+}
+
+function segment(a, b, xOf, yOf, cls) {
+  return el('line', {
+    x1: xOf(a.index).toFixed(1),
+    y1: yOf(a.price).toFixed(1),
+    x2: xOf(b.index).toFixed(1),
+    y2: yOf(b.price).toFixed(1),
+    class: cls,
+  });
+}
+
+function dot(point, xOf, yOf, cls) {
+  return el('circle', { cx: xOf(point.index).toFixed(1), cy: yOf(point.price).toFixed(1), r: 3.5, class: cls });
+}
+
+function trendSegment(line, xOf, yOf, count, cls) {
+  return el('line', {
+    x1: xOf(0).toFixed(1),
+    y1: yOf(line.priceAt(0)).toFixed(1),
+    x2: xOf(count - 1).toFixed(1),
+    y2: yOf(line.priceAt(count - 1)).toFixed(1),
+    class: cls,
+  });
+}
+
+/**
+ * 패턴 오버레이 — 순수 계산(patterns.js)과 좌표 변환(xOf/yPrice)을 잇는다.
+ * 카테고리별로 켜고 끌 수 있게 legend 항목도 함께 낸다. 숫자만 그리지 않고
+ * 근거(넥라인·꼭짓점)를 항상 함께 그리는 이유는 이 패턴들이 규칙 기반
+ * 지표와 달리 '봉우리가 비슷한 높이'같은 허용 오차 안에서 결정되기
+ * 때문이다 — patterns.js 상단 주석 참고.
+ */
+function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote }) {
+  const layer = el('g', { class: 'pattern-layer' });
+  const legend = [];
+  if (!categories || !categories.size) return { node: layer, legend };
+
+  const count = view.candles.length;
+  const patterns = detectPatterns(view.candles, { span: swingSpanFor(count) });
+
+  if (categories.has('lines')) {
+    for (const level of patterns.lines.levels.slice(0, 4)) {
+      const cls = level.kind === 'support' ? 'support' : 'resistance';
+      layer.append(levelLine(level.price, yPrice, plotWidth, `pattern-line ${cls}`));
+      legend.push({
+        cls,
+        text: `${level.kind === 'support' ? '지지선' : '저항선'} ${formatPrice(level.price, quote)} · ${level.touches}회 반응`,
+      });
+    }
+
+    if (patterns.lines.trendlines.support) {
+      layer.append(trendSegment(patterns.lines.trendlines.support, xOf, yPrice, count, 'pattern-line trend-up'));
+      legend.push({ cls: 'trend-up', text: '상승 추세선 (스윙 저점 연결)' });
+    }
+    if (patterns.lines.trendlines.resistance) {
+      layer.append(
+        trendSegment(patterns.lines.trendlines.resistance, xOf, yPrice, count, 'pattern-line trend-down'),
+      );
+      legend.push({ cls: 'trend-down', text: '하락 추세선 (스윙 고점 연결)' });
+    }
+
+    if (patterns.lines.fibonacci) {
+      for (const level of patterns.lines.fibonacci.levels) {
+        layer.append(levelLine(level.price, yPrice, plotWidth, 'pattern-line fib'));
+      }
+      legend.push({
+        cls: 'fib',
+        text: `피보나치 되돌림 · 38.2% ${formatPrice(fibAt(patterns.lines.fibonacci, 0.382), quote)} · 61.8% ${formatPrice(fibAt(patterns.lines.fibonacci, 0.618), quote)}`,
+      });
+    }
+
+    const vwapPath = linePath(patterns.lines.vwap, xOf, yPrice);
+    if (vwapPath) {
+      layer.append(el('path', { d: vwapPath, class: 'pattern-line vwap' }));
+      const lastVwap = [...patterns.lines.vwap].reverse().find((v) => v !== null);
+      if (lastVwap !== undefined) legend.push({ cls: 'vwap', text: `VWAP ${formatPrice(lastVwap, quote)}` });
+    }
+  }
+
+  if (categories.has('continuation') && patterns.continuation.triangle) {
+    const tri = patterns.continuation.triangle;
+    layer.append(trendSegment(tri.support, xOf, yPrice, count, 'pattern-line triangle'));
+    layer.append(trendSegment(tri.resistance, xOf, yPrice, count, 'pattern-line triangle'));
+    const label = { ascending: '상승삼각형', descending: '하락삼각형', symmetric: '대칭삼각형' }[tri.kind];
+    legend.push({ cls: 'triangle', text: `${label} 수렴 중` });
+  }
+
+  if (categories.has('reversal')) {
+    for (const item of patterns.reversal.doubleExtremes) {
+      const [a, b] = item.points;
+      layer.append(segment(a, item.neckline, xOf, yPrice, 'pattern-line neckline'));
+      layer.append(segment(item.neckline, b, xOf, yPrice, 'pattern-line neckline'));
+      [a, item.neckline, b].forEach((p) => layer.append(dot(p, xOf, yPrice, 'pattern-dot')));
+      const label = item.kind === 'double-bottom' ? '쌍바닥' : '쌍봉';
+      legend.push({
+        cls: item.kind,
+        text: `${label} · 넥라인 ${formatPrice(item.neckline.price, quote)} · ${item.completed ? '돌파 완료' : '돌파 전'}`,
+      });
+    }
+
+    for (const item of patterns.reversal.headAndShoulders) {
+      layer.append(segment(item.left, item.head, xOf, yPrice, 'pattern-line neckline'));
+      layer.append(segment(item.head, item.right, xOf, yPrice, 'pattern-line neckline'));
+      [item.left, item.head, item.right].forEach((p) => layer.append(dot(p, xOf, yPrice, 'pattern-dot')));
+      const label = item.kind === 'head-shoulders' ? '헤드앤숄더' : '역헤드앤숄더';
+      legend.push({ cls: item.kind, text: `${label} · 넥라인 ${formatPrice(item.neckline, quote)}` });
+    }
+  }
+
+  if (categories.has('volume')) {
+    const profile = patterns.volume.profile;
+    if (profile) {
+      const maxVolume = Math.max(...profile.levels.map((level) => level.volume), 1);
+      const barMaxWidth = 46;
+      for (const level of profile.levels) {
+        if (level.volume <= 0) continue;
+        const y1 = yPrice(level.priceHigh);
+        const y2 = yPrice(level.priceLow);
+        const width = (level.volume / maxVolume) * barMaxWidth;
+        layer.append(
+          el('rect', {
+            x: (plotWidth - width).toFixed(1),
+            y: Math.min(y1, y2).toFixed(1),
+            width: width.toFixed(1),
+            height: Math.max(1, Math.abs(y2 - y1) - 1).toFixed(1),
+            class: level === profile.poc ? 'pattern-vp poc' : 'pattern-vp',
+          }),
+        );
+      }
+      legend.push({
+        cls: 'poc',
+        text: `거래량 집중가(POC) ${formatPrice(profile.poc.priceLow, quote)}~${formatPrice(profile.poc.priceHigh, quote)}`,
+      });
+    }
+
+    const divergence = patterns.volume.obvDivergence;
+    if (divergence) {
+      const points = divergence.indices.map((index) => ({ index, price: view.candles[index].close }));
+      layer.append(segment(points[0], points[1], xOf, yPrice, `pattern-line ${divergence.kind}`));
+      points.forEach((p) => layer.append(dot(p, xOf, yPrice, `pattern-dot ${divergence.kind}`)));
+      const label = divergence.kind === 'bullish' ? 'OBV 상승 다이버전스' : 'OBV 하락 다이버전스';
+      legend.push({ cls: divergence.kind, text: `${label} (누적 거래량과 가격이 어긋남)` });
+    }
+  }
+
+  return { node: layer, legend };
+}
+
+function renderPatternLegend(container, legend) {
+  const existing = container.querySelector('.pattern-legend');
+  if (existing) existing.remove();
+  if (!legend.length) return;
+
+  const list = document.createElement('ul');
+  list.className = 'pattern-legend';
+  for (const item of legend) {
+    const li = document.createElement('li');
+    li.className = `pattern-legend-item ${item.cls}`;
+    li.textContent = item.text;
+    list.append(li);
+  }
+  container.append(list);
+}
+
+/**
+ * @param {HTMLElement} container position:relative 인 래퍼
+ * @param {{candles: object[], timeframeKey: string, bars?: number, patternCategories?: Set<string>}} options
+ */
+export function renderChart(
+  container,
+  { candles, timeframeKey, quote = 'KRW', bars = null, subPanel = 'rsi', patternCategories = null },
+) {
   container.textContent = '';
 
   if (!candles || candles.length < 2) {
@@ -207,6 +388,10 @@ export function renderChart(container, { candles, timeframeKey, quote = 'KRW', b
   });
   svg.append(candleLayer);
 
+  // ── 참고용 차트선 (지지/저항·추세선·패턴 등, 켠 카테고리만) ──
+  const { node: patternNode, legend } = patternLayer(view, patternCategories, { xOf, yPrice, plotWidth, quote });
+  svg.append(patternNode);
+
   // ── 거래량 막대 ───────────────────────────────────────────
   const volumeLayer = el('g', { class: 'volume-panel' });
   view.candles.forEach((candle, i) => {
@@ -257,6 +442,7 @@ export function renderChart(container, { candles, timeframeKey, quote = 'KRW', b
   svg.append(crosshair);
 
   container.append(svg);
+  renderPatternLegend(container, legend);
 
   const tooltip = document.createElement('div');
   tooltip.className = 'chart-tooltip';

@@ -473,6 +473,34 @@ main {
   background: #e3b341;
 }
 
+/* ── 카드 한 줄 요약 ──────────────────────────────────────── */
+
+.reason-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.reason-text {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.reason-text.buyish {
+  color: var(--rise);
+}
+
+.reason-text.sellish {
+  color: var(--fall);
+}
+
+.reason-sep {
+  font-size: 11.5px;
+  color: var(--line);
+}
+
 /* ── 시그니처: 공유 축 게이지 ────────────────────────────── */
 
 .gauge {
@@ -728,6 +756,82 @@ main {
   color: var(--text);
 }
 
+.pattern-toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pattern-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pattern-toggle input {
+  accent-color: #e3b341;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+}
+
+.zoom-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-size: 13px;
+  font-family: var(--font-num);
+  cursor: pointer;
+}
+
+.zoom-btn:hover:not(:disabled) {
+  background: #262c39;
+  color: var(--text);
+}
+
+.zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.zoom-btn.zoom-reset {
+  font-size: 11px;
+  border-left: 1px solid var(--line);
+  border-radius: 0 5px 5px 0;
+  margin-left: 2px;
+}
+
+.zoom-level {
+  min-width: 40px;
+  text-align: center;
+  font-size: 11px;
+  font-family: var(--font-num);
+  color: var(--muted);
+}
+
+.chart-period-note {
+  margin: 6px 0 0;
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .legend {
   display: flex;
   gap: 14px;
@@ -852,6 +956,140 @@ main {
   fill: none;
   stroke: #56d4dd;
   stroke-width: 1.3;
+}
+
+/* ── 참고용 차트선 (패턴 오버레이) ───────────────────────── */
+
+.pattern-line {
+  fill: none;
+  stroke-width: 1.3;
+  vector-effect: non-scaling-stroke;
+}
+
+.pattern-line.support {
+  stroke: #33c76a;
+  stroke-dasharray: 4 3;
+}
+
+.pattern-line.resistance {
+  stroke: #f85149;
+  stroke-dasharray: 4 3;
+}
+
+.pattern-line.trend-up {
+  stroke: #33c76a;
+  stroke-width: 1;
+  opacity: 0.7;
+}
+
+.pattern-line.trend-down {
+  stroke: #f85149;
+  stroke-width: 1;
+  opacity: 0.7;
+}
+
+.pattern-line.triangle {
+  stroke: #e3b341;
+  stroke-width: 1.4;
+}
+
+.pattern-line.fib {
+  stroke: #a371f7;
+  stroke-width: 1;
+  stroke-dasharray: 1 3;
+  opacity: 0.8;
+}
+
+.pattern-line.vwap {
+  stroke: #56d4dd;
+  stroke-width: 1.4;
+}
+
+.pattern-line.neckline {
+  stroke: #e6e6e6;
+  stroke-width: 1.2;
+  stroke-dasharray: 5 3;
+  opacity: 0.85;
+}
+
+.pattern-line.bullish {
+  stroke: #33c76a;
+}
+
+.pattern-line.bearish {
+  stroke: #f85149;
+}
+
+.pattern-dot {
+  stroke: #0d0f14;
+  stroke-width: 1;
+  fill: #e6e6e6;
+}
+
+.pattern-dot.neckline {
+  fill: #e6e6e6;
+}
+
+.pattern-dot.bullish {
+  fill: #33c76a;
+}
+
+.pattern-dot.bearish {
+  fill: #f85149;
+}
+
+.pattern-vp {
+  fill: rgba(125, 137, 168, 0.25);
+}
+
+.pattern-vp.poc {
+  fill: rgba(227, 179, 65, 0.55);
+}
+
+.pattern-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pattern-legend-item {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pattern-legend-item.support,
+.pattern-legend-item.trend-up,
+.pattern-legend-item.bullish,
+.pattern-legend-item.double-bottom,
+.pattern-legend-item.inverse-head-shoulders {
+  color: #33c76a;
+}
+
+.pattern-legend-item.resistance,
+.pattern-legend-item.trend-down,
+.pattern-legend-item.bearish,
+.pattern-legend-item.double-top,
+.pattern-legend-item.head-shoulders {
+  color: #f85149;
+}
+
+.pattern-legend-item.triangle {
+  color: #e3b341;
+}
+
+.pattern-legend-item.fib {
+  color: #a371f7;
+}
+
+.pattern-legend-item.vwap,
+.pattern-legend-item.poc {
+  color: #56d4dd;
 }
 
 .crosshair {

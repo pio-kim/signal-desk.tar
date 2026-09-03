@@ -6,6 +6,7 @@
  */
 
 import {
+  CHART_BARS,
   FLOW_EXCHANGE,
   FX_ASSET,
   POLL,
@@ -70,6 +71,17 @@ const state = {
   selectedExchange: EXCHANGES[0].id,
   chartTimeframe: TIMEFRAMES[0].key,
   subPanel: 'rsi',
+  /** 'live' | CHART_PERIODS 의 key. live 가 아니면 별도로 받아온 periodCandles 를 그린다. */
+  chartPeriod: 'live',
+  periodCandles: null,
+  periodLoading: false,
+  periodError: null,
+  /** 확대 상태. null = 자동(기간 없으면 CHART_BARS, 기간 있으면 전체). 숫자면 그만큼만 그린다. */
+  chartZoomBars: null,
+  /** 마지막으로 그린 캔들 총 개수 — 줌 상/하한을 정하는 기준(zoomChart 가 읽는다). */
+  chartMaxBars: CHART_BARS,
+  /** 참고용 차트선 카테고리. 기본은 전부 꺼짐 — 흐릿한 패턴 매칭까지 기본 노출하지 않는다. */
+  patternCategories: new Set(),
   lastTickAt: null,
   notice: null,
   ready: false,
@@ -84,6 +96,12 @@ const dom = {
   exchangeTabs: document.getElementById('exchange-tabs'),
   timeframeTabs: document.getElementById('timeframe-tabs'),
   subTabs: document.getElementById('sub-tabs'),
+  periodTabs: document.getElementById('period-tabs'),
+  patternToggles: document.getElementById('pattern-toggles'),
+  zoomIn: document.getElementById('zoom-in'),
+  zoomOut: document.getElementById('zoom-out'),
+  zoomReset: document.getElementById('zoom-reset'),
+  zoomLevel: document.getElementById('zoom-level'),
   grid: document.getElementById('grid'),
   detail: document.getElementById('detail'),
   detailTitle: document.getElementById('detail-title'),
@@ -200,6 +218,13 @@ function recompute() {
       trending: sentimentTracker.isTrending(coin),
     });
 
+    // 전환 근거·카드 요약이 함께 쓰는 지표 모음. 선택된 거래소 지표를 우선하고
+    // 없으면 대표 거래소(업비트)로 대체한다.
+    const reference = byExchange[state.selectedExchange] ?? byExchange[fxExchange.id];
+    const dayIndicators =
+      reference?.byTimeframe?.day?.categories?.flatMap((category) => category.indicators) ?? [];
+    const allIndicators = [...dayIndicators, ...flow.indicators, ...sentiment.indicators];
+
     const evaluation = {
       byExchange,
       consensus: { ...agreement, score: finalScore, candleScore: agreement.score },
@@ -207,6 +232,8 @@ function recompute() {
       sentiment,
       greed,
       grade: gradeOf(finalScore),
+      // 점수를 가장 크게 움직인 지표 1~2개 — 카드 한 줄 요약의 근거.
+      reasons: topContributors(allIndicators, 2),
       premium: crossExchangeGap({
         krwPrice: state.tickers[fxExchange.id]?.get(coin)?.price ?? null,
         usdtPrice: state.tickers[REFERENCE_EXCHANGE]?.get(coin)?.price ?? null,
@@ -215,15 +242,7 @@ function recompute() {
     };
     state.evaluations[coin] = evaluation;
 
-    // 전환 근거는 선택된 거래소의 지표와 수급 지표를 함께 본다.
-    const reference = byExchange[state.selectedExchange] ?? byExchange[fxExchange.id];
-    const dayIndicators =
-      reference?.byTimeframe?.day?.categories?.flatMap((category) => category.indicators) ?? [];
-    transitions.observe(coin, evaluation, [
-      ...dayIndicators,
-      ...flow.indicators,
-      ...sentiment.indicators,
-    ]);
+    transitions.observe(coin, evaluation, allIndicators);
   }
 }
 
@@ -298,6 +317,7 @@ function renderCards() {
       cardHead(coin, grade, evaluation),
       priceRow(coin.id, primary),
       signalRow(agreement, grade, evaluation),
+      reasonRow(evaluation),
       gauge(coin, agreement, grade, evaluation),
       greedRow(coin.id, evaluation),
       flowRow(evaluation),
@@ -337,6 +357,27 @@ function cardHead(coin, grade, evaluation) {
 
   head.append(symbol, el('span', `grade grade-${grade.key}`, grade.label), remove);
   return head;
+}
+
+/**
+ * 카드 한 줄 요약 — 점수를 가장 크게 움직인 지표 1~2개를 문장으로 보여준다.
+ * 숫자만 늘어선 카드에서 '왜 이 등급인지'를 계산해 보지 않아도 읽히게 한다.
+ */
+function reasonRow(evaluation) {
+  const row = el('div', 'reason-row');
+  const reasons = evaluation?.reasons ?? [];
+
+  if (!reasons.length) {
+    row.append(el('span', 'reason-text flat', '뚜렷한 근거 지표 없음'));
+    return row;
+  }
+
+  reasons.forEach((reason, index) => {
+    if (index > 0) row.append(el('span', 'reason-sep', '·'));
+    row.append(el('span', `reason-text ${toneOf(reason.score)}`, `${reason.label} ${reason.verdict}`));
+  });
+
+  return row;
 }
 
 /** 실시간 수급 한 줄 — 캔들 지표와 성질이 달라 따로 보여준다. */
@@ -680,6 +721,31 @@ function renderTabs() {
     subs.append(tab);
   }
   dom.subTabs.replaceChildren(subs);
+
+  const periods = document.createDocumentFragment();
+  for (const period of CHART_PERIODS) {
+    const tab = el('button', 'tab', period.label);
+    tab.type = 'button';
+    tab.dataset.period = period.key;
+    tab.setAttribute('role', 'tab');
+    const active = state.chartPeriod === period.key;
+    tab.setAttribute('aria-selected', String(active));
+    if (active) tab.classList.add('active');
+    periods.append(tab);
+  }
+  dom.periodTabs.replaceChildren(periods);
+
+  const toggles = document.createDocumentFragment();
+  for (const category of PATTERN_CATEGORIES) {
+    const label = el('label', 'pattern-toggle');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.dataset.pattern = category.key;
+    input.checked = state.patternCategories.has(category.key);
+    label.append(input, document.createTextNode(category.label));
+    toggles.append(label);
+  }
+  dom.patternToggles.replaceChildren(toggles);
 }
 
 /** 서브차트로 띄울 수 있는 지표. 0~100 축이 아닌 MACD 는 자체 축척을 쓴다. */
@@ -689,19 +755,170 @@ const SUB_PANELS = [
   { key: 'stochastic', label: '스토캐스틱' },
 ];
 
+/**
+ * 차트 조회 기간. live 는 지금처럼 30초마다 도는 실시간 캔들(최근 CHART_BARS 개)을
+ * 그대로 쓰고, 나머지는 선택하는 순간 그 기간만큼 일봉을 별도로 받아온다 —
+ * 실시간 폴링에 얹지 않는 이유는 loadPeriodCandles 주석 참고.
+ */
+const CHART_PERIODS = [
+  { key: 'live', label: '실시간' },
+  { key: 'month', label: '1개월', days: 30 },
+  { key: 'half', label: '6개월', days: 182 },
+  { key: 'year', label: '1년', days: 365 },
+  { key: 'y2', label: '2년', days: 730 },
+  { key: 'y3', label: '3년', days: 1095 },
+];
+
+/**
+ * 참고용 차트선 네 갈래. 기본은 전부 꺼져 있다 — patterns.js 상단 주석대로
+ * 반전/지속 패턴은 판정 경계가 흐릿해서, 사용자가 의도적으로 켜야 보이게 했다.
+ */
+const PATTERN_CATEGORIES = [
+  { key: 'lines', label: '라인형' },
+  { key: 'volume', label: '거래량' },
+  { key: 'reversal', label: '반전' },
+  { key: 'continuation', label: '지속' },
+];
+
 function renderChartPanel() {
   const exchange = exchangeOf(state.selectedExchange);
   const price = state.tickers[exchange.id]?.get(state.selectedCoin)?.price;
-  const stored = state.candles[exchange.id]?.[state.selectedCoin]?.[state.chartTimeframe] ?? null;
 
   dom.chartTitle.textContent = `${state.selectedCoin}/${exchange.quote}`;
   renderTabs();
+
+  const periodSpec = CHART_PERIODS.find((p) => p.key === state.chartPeriod);
+  const periodActive = Boolean(periodSpec?.days);
+  const periodReady =
+    periodActive &&
+    state.periodCandles?.exchange === exchange.id &&
+    state.periodCandles?.coin === state.selectedCoin &&
+    state.periodCandles?.period === state.chartPeriod;
+
+  if (periodActive && !periodReady) {
+    dom.chart.textContent = '';
+    const message = document.createElement('p');
+    message.className = 'chart-empty';
+    message.textContent = state.periodLoading
+      ? `${periodSpec.label} 캔들을 불러오는 중…`
+      : (state.periodError ?? `${periodSpec.label} 캔들을 불러오지 못했습니다.`);
+    dom.chart.append(message);
+    return;
+  }
+
+  const candles = periodReady
+    ? state.periodCandles.candles
+    : withLivePrice(
+        state.candles[exchange.id]?.[state.selectedCoin]?.[state.chartTimeframe] ?? null,
+        price,
+      );
+
+  // 줌 상한은 '지금 실제로 갖고 있는 캔들 개수' — zoomChart 가 이 값을 기준으로 확대/축소한다.
+  state.chartMaxBars = candles?.length || CHART_BARS;
+  const bars = state.chartZoomBars
+    ? Math.min(state.chartZoomBars, state.chartMaxBars)
+    : periodReady
+      ? candles.length
+      : null;
+
   renderChart(dom.chart, {
-    candles: withLivePrice(stored, price),
-    timeframeKey: state.chartTimeframe,
+    candles,
+    timeframeKey: periodReady ? 'day' : state.chartTimeframe,
     quote: exchange.quote,
     subPanel: state.subPanel,
+    bars,
+    patternCategories: state.patternCategories,
   });
+  updateZoomControls(bars);
+
+  if (periodReady) {
+    const note = document.createElement('p');
+    note.className = 'chart-period-note';
+    note.textContent =
+      candles.length < periodSpec.days
+        ? `${exchange.name} 는 한 번에 최근 캔들 ${candles.length}개까지만 내줍니다 — ${periodSpec.label} 전체가 아닙니다.`
+        : `${periodSpec.label} 일봉 ${candles.length}개 · ${exchange.name} 기준 · 이 조회는 실시간으로 갱신되지 않습니다.`;
+    dom.chart.append(note);
+  }
+}
+
+// ── 차트 확대/축소 ───────────────────────────────────────────
+
+const MIN_ZOOM_BARS = 15;
+
+/** 캔들 하나가 4px 밑으로 내려가는 좁은 화면에서는 45봉이 기본이다(chart.js 와 동일 기준). */
+function defaultVisibleBars() {
+  const width = dom.chart.clientWidth || 720;
+  return width < 520 ? 45 : CHART_BARS;
+}
+
+/**
+ * factor<1 이면 확대(봉이 줄어 하나하나 커짐), factor>1 이면 축소(봉이 늘어 넓게 보임).
+ * 상한은 지금 실제로 들고 있는 캔들 개수(state.chartMaxBars) — 없는 데이터를
+ * 확대해서 그릴 수는 없다.
+ */
+function zoomChart(factor) {
+  const maxBars = state.chartMaxBars || CHART_BARS;
+  const base = state.chartZoomBars ?? Math.min(maxBars, defaultVisibleBars());
+  const next = Math.max(MIN_ZOOM_BARS, Math.min(maxBars, Math.round(base * factor)));
+  if (next === state.chartZoomBars) return;
+  state.chartZoomBars = next;
+  renderChartPanel();
+}
+
+function resetZoom() {
+  if (state.chartZoomBars === null) return;
+  state.chartZoomBars = null;
+  renderChartPanel();
+}
+
+function updateZoomControls(shownBars) {
+  const shown = shownBars ?? Math.min(state.chartMaxBars, defaultVisibleBars());
+  dom.zoomLevel.textContent = `${shown}봉`;
+  dom.zoomIn.disabled = shown <= MIN_ZOOM_BARS;
+  dom.zoomOut.disabled = shown >= state.chartMaxBars;
+  dom.zoomReset.disabled = state.chartZoomBars === null;
+}
+
+/**
+ * 기간 선택 시에만 별도로 긴 일봉 히스토리를 받아온다. 실시간 30초 폴링
+ * (state.candles)에 그대로 얹지 않는 이유는, 크라켄처럼 이미 한도가 빠듯한
+ * 거래소까지 매 주기 긴 요청을 반복하면 그쪽부터 막히기 때문이다 — 그래서
+ * 별도 REST 한 번으로 끝낸다.
+ *
+ * 거래소마다 한 번에 주는 캔들 상한이 다르다(업비트는 최대 200개, 어떤
+ * 어댑터는 count 인수 자체를 무시하고 자체 상한만큼만 준다). 여기서 페이지네이션
+ * 으로 흉내내 늘리지 않고, 실제로 돌아온 개수를 그대로 쓰고 화면에도 그
+ * 개수를 밝힌다(renderChartPanel 의 chart-period-note) — 조용히 자르는
+ * 것보다 정직한 쪽을 택했다.
+ */
+async function loadPeriodCandles(period) {
+  const spec = CHART_PERIODS.find((p) => p.key === period);
+  state.chartPeriod = period;
+
+  if (!spec?.days) {
+    state.periodCandles = null;
+    state.periodError = null;
+    renderChartPanel();
+    return;
+  }
+
+  const exchange = exchangeOf(state.selectedExchange);
+  const coin = state.selectedCoin;
+  state.periodLoading = true;
+  state.periodError = null;
+  renderChartPanel();
+
+  try {
+    const candles = await exchange.fetchCandles(coin, 'day', spec.days);
+    state.periodCandles = { exchange: exchange.id, coin, period, candles };
+  } catch (error) {
+    state.periodCandles = null;
+    state.periodError = `${exchange.name} 기간 데이터를 받지 못했습니다: ${error?.message ?? '알 수 없는 오류'}`;
+  } finally {
+    state.periodLoading = false;
+    renderChartPanel();
+  }
 }
 
 // ── 거래소 × 봉 주기 격자 ────────────────────────────────────
@@ -1135,7 +1352,24 @@ function renderCoinPanel() {
 
   const footer = el('div', 'panel-footer');
   footer.append(hint, reset);
+
+  /*
+   * dom.search 는 같은 노드를 재사용하지만, replaceChildren 은 기존 자식을
+   * 전부 뜯어낸 뒤 다시 붙인다 — 그 순간 포커스가 있던 입력창도 blur 된다.
+   * 타이핑마다 이 함수가 다시 불리므로(input 이벤트), 그대로 두면 글자
+   * 하나 칠 때마다 포커스가 끊긴다. 그려 넣기 전에 상태를 적어 두고 뒤에
+   * 복원한다.
+   */
+  const typing = document.activeElement === dom.search;
+  const caretStart = dom.search.selectionStart;
+  const caretEnd = dom.search.selectionEnd;
+
   dom.panel.replaceChildren(chips, dom.search, results, footer);
+
+  if (typing) {
+    dom.search.focus({ preventScroll: true });
+    dom.search.setSelectionRange(caretStart, caretEnd);
+  }
 }
 
 // ── 렌더 스케줄 ──────────────────────────────────────────────
@@ -1288,9 +1522,24 @@ async function loadSentiment() {
 
 // ── 이벤트 ───────────────────────────────────────────────────
 
+/**
+ * 종목·거래소가 바뀌면 그 조합으로 받아둔 기간 캔들은 더 이상 맞지 않는다.
+ * 자동으로 다시 받아오지 않고 실시간 보기로 되돌리는 이유는, 조회 기간이
+ * 늘 때마다(최대 3년치) 종목을 넘길 때마다 REST 를 다시 부르면 캔들 전환이
+ * 잦은 화면에서 호출이 눈에 안 띄게 누적되기 때문이다 — 기간 조회는 항상
+ * 사용자가 탭을 눌러야 시작되게 한다.
+ */
+function resetChartPeriod() {
+  state.chartPeriod = 'live';
+  state.periodCandles = null;
+  state.periodError = null;
+  state.periodLoading = false;
+}
+
 function selectCoin(coin) {
   if (!coin || state.selectedCoin === coin) return;
   state.selectedCoin = coin;
+  resetChartPeriod();
   renderCards();
   renderChartPanel();
   renderGrid();
@@ -1301,6 +1550,7 @@ function selectCoin(coin) {
 function selectExchange(id) {
   if (!id || state.selectedExchange === id) return;
   state.selectedExchange = id;
+  resetChartPeriod();
   renderChartPanel();
   renderGrid();
   renderDetail();
@@ -1431,6 +1681,34 @@ function bindEvents() {
     state.subPanel = tab.dataset.sub;
     renderChartPanel();
   });
+
+  dom.periodTabs.addEventListener('click', (event) => {
+    const tab = event.target.closest('.tab');
+    if (!tab || tab.dataset.period === state.chartPeriod) return;
+    loadPeriodCandles(tab.dataset.period);
+  });
+
+  dom.patternToggles.addEventListener('change', (event) => {
+    const input = event.target.closest('input[data-pattern]');
+    if (!input) return;
+    if (input.checked) state.patternCategories.add(input.dataset.pattern);
+    else state.patternCategories.delete(input.dataset.pattern);
+    renderChartPanel();
+  });
+
+  dom.zoomIn.addEventListener('click', () => zoomChart(0.75));
+  dom.zoomOut.addEventListener('click', () => zoomChart(1.35));
+  dom.zoomReset.addEventListener('click', resetZoom);
+
+  // 차트 위에서 휠을 굴리면 확대/축소 — 페이지 스크롤은 차트 밖에서만 그대로 동작한다.
+  dom.chart.addEventListener(
+    'wheel',
+    (event) => {
+      event.preventDefault();
+      zoomChart(event.deltaY < 0 ? 0.85 : 1.18);
+    },
+    { passive: false },
+  );
 
   dom.grid.addEventListener('click', (event) => {
     const row = event.target.closest('tbody tr');

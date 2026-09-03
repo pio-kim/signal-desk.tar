@@ -52,6 +52,25 @@
             <span class="tab-caption">보조</span>
             <div id="sub-tabs" class="tabs" role="tablist" aria-label="보조 지표"></div>
           </div>
+          <div class="tab-group">
+            <span class="tab-caption">기간</span>
+            <div id="period-tabs" class="tabs" role="tablist" aria-label="조회 기간"></div>
+          </div>
+          <div class="tab-group">
+            <span class="tab-caption">확대</span>
+            <div class="zoom-controls">
+              <button id="zoom-out" type="button" class="zoom-btn" aria-label="축소">−</button>
+              <span id="zoom-level" class="zoom-level">80봉</span>
+              <button id="zoom-in" type="button" class="zoom-btn" aria-label="확대">+</button>
+              <button id="zoom-reset" type="button" class="zoom-btn zoom-reset" aria-label="확대 초기화" disabled>
+                전체
+              </button>
+            </div>
+          </div>
+          <div class="tab-group">
+            <span class="tab-caption">참고용 차트선</span>
+            <div id="pattern-toggles" class="pattern-toggle-group" aria-label="참고용 차트선 카테고리"></div>
+          </div>
           <ul class="legend">
             <li><i class="swatch ma-short"></i>MA20</li>
             <li><i class="swatch ma-long"></i>MA60</li>
