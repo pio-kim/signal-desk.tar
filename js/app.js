@@ -38,6 +38,7 @@ import {
   overheatNote,
 } from './explain.js';
 import { createSelection, fetchCatalog, searchCatalog } from './markets.js';
+import { attachHelp, initTooltips } from './tooltip.js';
 import { renderChart } from './chart.js';
 import {
   formatClock,
@@ -331,15 +332,15 @@ function renderCards() {
     card.append(
       cardHead(coin, grade, evaluation),
       priceRow(coin.id, primary),
-      signalRow(agreement, grade, evaluation),
+      signalRow(coin.id, agreement, grade, evaluation),
       reasonRow(evaluation),
-      whyRow(evaluation, grade),
+      whyRow(coin.id, evaluation, grade),
       gauge(coin, agreement, grade, evaluation),
       greedRow(coin.id, evaluation),
-      flowRow(evaluation),
-      sentimentRow(evaluation),
+      flowRow(coin.id, evaluation),
+      sentimentRow(coin.id, evaluation),
       exchangeRows(coin.id, evaluation),
-      premiumRow(evaluation, primary),
+      premiumRow(coin.id, evaluation, primary),
     );
     fragment.append(card);
   }
@@ -413,7 +414,7 @@ function reasonRow(evaluation) {
  * 였다. 답은 추세(매수)와 과매수(매도)가 상쇄됐다는 것인데, 점수 한 줄로는 그
  * 상쇄가 전혀 보이지 않는다. 힘의 방향과 크기를 그대로 드러낸다.
  */
-function whyRow(evaluation, grade) {
+function whyRow(coin, evaluation, grade) {
   const wrap = el('section', 'why');
 
   // 지표 상세·전환 근거와 같은 기준 거래소를 쓴다. 선택한 곳이 이 종목을
@@ -462,7 +463,10 @@ function whyRow(evaluation, grade) {
     row.append(track);
 
     row.append(el('span', `force-score ${toneOf(force.pull)}`, formatScore(force.score)));
-    row.title = `${force.label} ${formatScore(force.score)}점 × 가중 ${force.weight} = 당기는 힘 ${formatScore(force.pull)}`;
+    attachHelp(row, `cat:${force.key}`, {
+      id: `force:${coin}:${force.key}`,
+      live: `${formatScore(force.score)}점 × 가중 ${force.weight} = 당기는 힘 ${formatScore(force.pull)}`,
+    });
     list.append(row);
   }
   wrap.append(list);
@@ -477,7 +481,7 @@ function whyRow(evaluation, grade) {
 }
 
 /** 실시간 수급 한 줄 — 캔들 지표와 성질이 달라 따로 보여준다. */
-function flowRow(evaluation) {
+function flowRow(coin, evaluation) {
   const flow = evaluation?.flow;
   const row = el('div', 'flow-row');
 
@@ -488,9 +492,12 @@ function flowRow(evaluation) {
     const item = el('span', `flow-item ${toneOf(indicator.score)}`);
     item.append(el('span', 'flow-label', indicator.label));
     item.append(el('span', 'flow-value', indicator.available ? indicator.display : '대기'));
-    item.title = indicator.available
-      ? `${indicator.label} · ${indicator.verdict} (${formatScore(indicator.score)}점)`
-      : `${indicator.label} · 체결 대기 중`;
+    attachHelp(item, `ind:${indicator.key}`, {
+      id: `flow:${coin}:${indicator.key}`,
+      live: indicator.available
+        ? `지금 ${indicator.display} · ${indicator.verdict} (${formatScore(indicator.score)}점)`
+        : '체결 대기 중 — 아직 판정하지 않습니다',
+    });
     row.append(item);
   }
 
@@ -549,7 +556,7 @@ function priceRow(coin, ticker) {
  * 옆에 '+20 매수' 가 붙어 모순처럼 읽힌다 — 합의는 거래소들의 캔들 판정이고,
  * 수급은 업비트 단독 신호라 애초에 거래소 간 합의에 참여할 수 없다.
  */
-function signalRow(agreement, grade, evaluation) {
+function signalRow(coin, agreement, grade, evaluation) {
   const row = el('div', 'signal-row');
 
   const score = el('div', `signal-score tone-${grade.key}`);
@@ -566,9 +573,7 @@ function signalRow(agreement, grade, evaluation) {
     const parts = [`캔들 ${formatScore(candle)}`];
     if (flow !== null) parts.push(`수급 ${formatScore(flow)}`);
     if (mood !== null) parts.push(`심리 ${formatScore(mood)}`);
-    const breakdown = el('span', 'signal-breakdown', parts.join(' · '));
-    breakdown.title = '캔들 합의 · 실시간 수급 · 시장 심리를 3.7 : 1.0 : 0.6 으로 합친 값입니다';
-    score.append(breakdown);
+    score.append(el('span', 'signal-breakdown', parts.join(' · ')));
   }
 
   /*
@@ -582,9 +587,15 @@ function signalRow(agreement, grade, evaluation) {
       `signal-gap${isNearBoundary(gap) ? ' near' : ''}`,
       `${gap.direction === 'up' ? '↑' : '↓'} ${gap.label}까지 ${gap.gap}점`,
     );
-    chip.title = `현재 ${formatScore(agreement.score)}점 · ${gap.label} 기준선까지 ${gap.gap}점 남았습니다. 등급 기준은 그대로입니다.`;
     score.append(chip);
   }
+
+  const live = [`현재 ${formatScore(agreement?.score ?? null)}점 · ${grade.label}`];
+  if (candle !== null) live.push(`캔들 ${formatScore(candle)}`);
+  if (flow !== null) live.push(`수급 ${formatScore(flow)}`);
+  if (mood !== null) live.push(`심리 ${formatScore(mood)}`);
+  if (gap) live.push(`${gap.label}까지 ${gap.gap}점`);
+  attachHelp(score, 'screen:score', { id: `score:${coin}`, live: live.join(' · ') });
 
   const total = agreement?.total ?? 0;
   const agree = agreement?.agree ?? 0;
@@ -602,10 +613,10 @@ function signalRow(agreement, grade, evaluation) {
     : '데이터 없음';
   badge.append(el('span', 'agreement-label', label));
   const capable = EXCHANGES.filter((exchange) => exchange.browserRest !== false).length;
-  badge.title = [
-    '거래소들이 서로 같은 방향을 가리키는 정도입니다. 시그널 점수와는 다른 값입니다.',
-    `지표를 낼 수 있는 거래소 ${capable}곳 중 ${total}곳이 판정에 참여했습니다.`,
-  ].join(' ');
+  attachHelp(badge, 'screen:consensus', {
+    id: `consensus:${coin}`,
+    live: `지표를 낼 수 있는 거래소 ${capable}곳 중 ${total}곳이 참여해 ${label} 입니다`,
+  });
 
   row.append(score, badge);
   return row;
@@ -689,7 +700,7 @@ function exchangeRows(coin, evaluation) {
   return list;
 }
 
-function premiumRow(evaluation, primary) {
+function premiumRow(coin, evaluation, primary) {
   const list = el('dl', 'card-meta');
   const premium = evaluation?.premium ?? null;
 
@@ -699,12 +710,16 @@ function premiumRow(evaluation, primary) {
   ];
 
   for (const [term, value] of rows) {
-    list.append(el('dt', null, term));
+    const dt = el('dt', null, term);
     const dd = el('dd', null, value);
-    if (term === 'USDT 기준 괴리' && premium !== null) {
-      dd.classList.add(premium > 0 ? 'rise' : premium < 0 ? 'fall' : 'even');
+    if (term === 'USDT 기준 괴리') {
+      // 김치 프리미엄으로 오해하기 가장 쉬운 값이라 이름과 값 양쪽에 설명을 건다.
+      const live = premium === null ? '아직 환산 기준을 못 받았습니다' : `지금 ${value}`;
+      attachHelp(dt, 'screen:gap', { id: `gap:${coin}:term`, live });
+      attachHelp(dd, 'screen:gap', { id: `gap:${coin}:value`, live });
+      if (premium !== null) dd.classList.add(premium > 0 ? 'rise' : premium < 0 ? 'fall' : 'even');
     }
-    list.append(dd);
+    list.append(dt, dd);
   }
 
   return list;
@@ -730,25 +745,25 @@ function greedRow(coin, evaluation) {
   market.append(el('span', 'greed-value', marketValue === null ? '—' : String(marketValue)));
   market.append(el('span', 'greed-label', marketGrade.label));
   const marketIndicator = evaluation?.sentiment?.indicators?.find((d) => d.key === 'fearGreed');
-  market.title = [
-    '전체 시장 공포탐욕지수 (BTC 기준, 모든 종목에 같은 값)',
-    marketIndicator?.available
-      ? `역추세로 읽어 시그널 점수에 ${formatScore(marketIndicator.score)}점 기여합니다`
+  attachHelp(market, 'greed:market', {
+    id: `greed:${coin}:market`,
+    live: marketIndicator?.available
+      ? `지금 ${marketValue} ${marketGrade.label} · 역추세로 읽어 시그널 점수에 ${formatScore(marketIndicator.score)}점 기여합니다`
       : '아직 값을 받지 못했습니다',
-  ].join('\n');
+  });
   row.append(market);
 
   const own = el('span', `greed-chip own greed-${greed?.key ?? 'unknown'}`);
   own.append(el('span', 'greed-scope', coin));
   own.append(el('span', 'greed-value', greed?.value === null ? '—' : String(Math.round(greed.value))));
   own.append(el('span', 'greed-label', greed?.label ?? '판정 불가'));
-  own.title = [
-    `${coin} 종목별 탐욕지수 — 시그널 점수에는 반영하지 않는 표시 전용 값입니다.`,
-    ...(greed?.components ?? []).map(
-      (c) =>
-        `${c.label} ${c.value === null ? '데이터 없음' : Math.round(c.value)} (가중 ${Math.round(c.weight * 100)}%)`,
-    ),
-  ].join('\n');
+  attachHelp(own, 'greed:own', {
+    id: `greed:${coin}:own`,
+    live:
+      greed?.value === null || greed?.value === undefined
+        ? '성분 데이터가 모자라 판정하지 못했습니다'
+        : `지금 ${coin} ${Math.round(greed.value)} ${greed.label}`,
+  });
   row.append(own);
 
   if (greed?.value !== null && greed?.value !== undefined) {
@@ -758,18 +773,30 @@ function greedRow(coin, evaluation) {
     bar.append(fill);
     row.append(bar);
 
-    const parts = greed.components
-      .filter((c) => c.value !== null)
-      .map((c) => `${c.label} ${Math.round(c.value)}`)
-      .join(' · ');
-    row.append(el('span', 'greed-parts', parts));
+    /*
+     * 성분을 이어 붙인 한 줄이 아니라 성분마다 따로 그린다. 각 성분이 무엇을
+     * 재는 값인지 설명을 붙여야 하는데 한 덩어리 문자열에는 붙일 자리가 없다.
+     */
+    const parts = el('span', 'greed-parts');
+    for (const component of greed.components) {
+      if (component.value === null) continue;
+      const chip = el('span', 'greed-part');
+      chip.append(el('span', 'greed-part-label', component.label));
+      chip.append(el('span', 'greed-part-value', String(Math.round(component.value))));
+      attachHelp(chip, `gc:${component.key}`, {
+        id: `greed:${coin}:part:${component.key}`,
+        live: `지금 ${Math.round(component.value)} · 가중 ${Math.round(component.weight * 100)}%`,
+      });
+      parts.append(chip);
+    }
+    row.append(parts);
   }
 
   return row;
 }
 
 /** 시장 심리 한 줄. 캔들·수급과 성질이 또 달라 따로 보여준다. */
-function sentimentRow(evaluation) {
+function sentimentRow(coin, evaluation) {
   const sentiment = evaluation?.sentiment;
   const row = el('div', 'flow-row sentiment-row');
   row.append(el('span', 'flow-title', sentimentCategory().label));
@@ -782,9 +809,12 @@ function sentimentRow(evaluation) {
     const item = el('span', `flow-item ${toneOf(indicator.score)}`);
     item.append(el('span', 'flow-label', indicator.label));
     item.append(el('span', 'flow-value', indicator.available ? indicator.display : '없음'));
-    item.title = indicator.available
-      ? `${indicator.label} · ${indicator.verdict} (${formatScore(indicator.score)}점)`
-      : `${indicator.label} · 데이터를 받지 못했습니다`;
+    attachHelp(item, `ind:${indicator.key}`, {
+      id: `sentiment:${coin}:${indicator.key}`,
+      live: indicator.available
+        ? `지금 ${indicator.display} · ${indicator.verdict} (${formatScore(indicator.score)}점)`
+        : '데이터를 받지 못했습니다',
+    });
     row.append(item);
   }
 
@@ -1142,9 +1172,20 @@ function renderDetail() {
 
   const head = el('thead');
   const headRow = el('tr');
-  for (const label of ['지표', '가중', ...TIMEFRAMES.map((t) => t.label)]) {
+  for (const label of ['지표', '가중']) {
     const th = el('th', null, label);
     th.scope = 'col';
+    headRow.append(th);
+  }
+  // 봉 주기 열은 주기마다 비중과 주의사항이 달라 설명을 따로 붙인다.
+  for (const timeframe of TIMEFRAMES) {
+    const th = el('th', null, timeframe.label);
+    th.scope = 'col';
+    const score = result?.byTimeframe?.[timeframe.key]?.score ?? null;
+    attachHelp(th, `tf:${timeframe.key}`, {
+      id: `detail:tf:${timeframe.key}`,
+      live: `${exchange.name} ${timeframe.label} ${formatScore(score)}점`,
+    });
     headRow.append(th);
   }
   head.append(headRow);
@@ -1159,6 +1200,9 @@ function renderDetail() {
       const row = el('tr', 'indicator-row');
       const name = el('th', null, indicatorTemplate.label);
       name.scope = 'row';
+      attachHelp(name, `ind:${indicatorTemplate.key}`, {
+        id: `detail:ind:${indicatorTemplate.key}`,
+      });
       row.append(name, el('td', 'weight', ''));
 
       for (const timeframe of TIMEFRAMES) {
@@ -1213,6 +1257,7 @@ function categoryRow(template, result, categoryIndex) {
 
   const name = el('th', null, template.label);
   name.scope = 'row';
+  attachHelp(name, `cat:${template.key}`, { id: `detail:cat:${template.key}` });
   row.append(name, el('td', 'weight', `×${template.weight}`));
 
   for (const timeframe of TIMEFRAMES) {
@@ -1225,7 +1270,10 @@ function categoryRow(template, result, categoryIndex) {
     const adjust = category?.adjust ?? 1;
     if (adjust !== 1) {
       const badge = el('span', `adjust ${adjust > 1 ? 'up' : 'down'}`, `×${adjust}`);
-      badge.title = `${regime?.label ?? ''} 이라 가중을 ${adjust > 1 ? '키웠' : '줄였'}습니다`;
+      attachHelp(badge, 'screen:regime', {
+        id: `detail:regime:${template.key}:${timeframe.key}`,
+        live: `${timeframe.label} ${regime?.label ?? '판정 불가'} — ${template.label} 가중을 ×${adjust} 로 ${adjust > 1 ? '키웠' : '줄였'}습니다`,
+      });
       cell.append(badge);
     }
     row.append(cell);
@@ -1243,6 +1291,10 @@ function externalSection(result, category, note) {
 
   const name = el('th', null, category.label);
   name.scope = 'row';
+  attachHelp(name, `cat:${category.key}`, {
+    id: `detail:cat:${category.key}`,
+    live: `이 종목 ${formatScore(result?.score ?? null)}점`,
+  });
   row.append(name, el('td', 'weight', `×${category.weight}`));
 
   const cell = el('td', 'cell flow-cell');
@@ -1258,6 +1310,12 @@ function externalSection(result, category, note) {
       item.append(
         el('span', 'flow-chip-score', indicator.available ? formatScore(indicator.score) : '—'),
       );
+      attachHelp(item, `ind:${indicator.key}`, {
+        id: `detail:ext:${indicator.key}`,
+        live: indicator.available
+          ? `지금 ${indicator.display} · ${indicator.verdict} (${formatScore(indicator.score)}점)`
+          : indicator.display,
+      });
       cell.append(item);
     }
     cell.append(el('span', 'flow-note', `${note} · 봉 주기 무관`));
@@ -2014,6 +2072,8 @@ function togglePause() {
 
 async function init() {
   bindEvents();
+  // 설명 툴팁은 위임 방식이라 요소가 그려지기 전에 한 번만 붙이면 된다.
+  initTooltips();
   dom.cards.replaceChildren(
     el('p', 'loading', `거래소 ${EXCHANGES.length}곳에 연결하는 중입니다…`),
   );
