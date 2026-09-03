@@ -6,9 +6,12 @@
  */
 
 import {
+  CATEGORIES,
   CHART_BARS,
   FLOW_EXCHANGE,
   FX_ASSET,
+  GRADES,
+  GRADE_THRESHOLDS,
   POLL,
   REALTIME,
   TIMEFRAMES,
@@ -25,6 +28,15 @@ import { createFlowTracker } from './flow.js';
 import { coinsMentioned, createSentimentTracker, scoreArticle } from './news.js';
 import { greedIndex, greedLabel as greedLabelOf } from './greed.js';
 import { createTransitionLog, topContributors } from './transitions.js';
+import {
+  actionOf,
+  categoryForces,
+  explainForces,
+  gradeGap,
+  hasCandleForces,
+  isNearBoundary,
+  overheatNote,
+} from './explain.js';
 import { createSelection, fetchCatalog, searchCatalog } from './markets.js';
 import { renderChart } from './chart.js';
 import {
@@ -64,6 +76,7 @@ const state = {
   catalog: [],
   catalogQuery: '',
   panelOpen: false,
+  helpOpen: false,
   newsError: null,
   paused: false,
   hidden: false,
@@ -115,6 +128,8 @@ const dom = {
   newsTitle: document.getElementById('news-title'),
   panel: document.getElementById('coin-panel'),
   panelToggle: document.getElementById('coin-toggle'),
+  help: document.getElementById('help-panel'),
+  helpToggle: document.getElementById('help-toggle'),
   pause: document.getElementById('pause-toggle'),
   search: null,
 };
@@ -318,6 +333,7 @@ function renderCards() {
       priceRow(coin.id, primary),
       signalRow(agreement, grade, evaluation),
       reasonRow(evaluation),
+      whyRow(evaluation, grade),
       gauge(coin, agreement, grade, evaluation),
       greedRow(coin.id, evaluation),
       flowRow(evaluation),
@@ -355,7 +371,17 @@ function cardHead(coin, grade, evaluation) {
   remove.setAttribute('aria-label', `${coin.name} 제거`);
   remove.dataset.remove = coin.id;
 
-  head.append(symbol, el('span', `grade grade-${grade.key}`, grade.label), remove);
+  /*
+   * 등급 라벨만으로는 무엇을 하라는 말인지 전달되지 않는다 — 특히 '중립' 은
+   * '신호 없음' 이 아니라 '근거가 양쪽으로 갈렸다' 는 뜻이다. 행동 언어를 함께 적는다.
+   */
+  const verdict = el('div', 'verdict');
+  verdict.append(
+    el('span', `grade grade-${grade.key}`, grade.label),
+    el('span', 'grade-action', actionOf(grade)),
+  );
+
+  head.append(symbol, verdict, remove);
   return head;
 }
 
@@ -378,6 +404,76 @@ function reasonRow(evaluation) {
   });
 
   return row;
+}
+
+/**
+ * '왜 이 등급인가' — 카테고리를 매수 편·매도 편으로 갈라 가중만큼의 힘으로 그린다.
+ *
+ * 이 화면에서 가장 자주 나온 질문이 '가격이 크게 올랐는데 왜 아직 중립이냐'
+ * 였다. 답은 추세(매수)와 과매수(매도)가 상쇄됐다는 것인데, 점수 한 줄로는 그
+ * 상쇄가 전혀 보이지 않는다. 힘의 방향과 크기를 그대로 드러낸다.
+ */
+function whyRow(evaluation, grade) {
+  const wrap = el('section', 'why');
+
+  // 지표 상세·전환 근거와 같은 기준 거래소를 쓴다. 선택한 곳이 이 종목을
+  // 지원하지 않으면 대표 거래소로 물러난다.
+  let exchange = exchangeOf(state.selectedExchange) ?? fxExchange;
+  let forces = categoryForces(evaluation, exchange.id);
+  // 수급·심리는 거래소와 무관하게 남으므로 길이가 아니라 캔들 유무로 판단한다.
+  if (!hasCandleForces(forces) && exchange.id !== fxExchange.id) {
+    exchange = fxExchange;
+    forces = categoryForces(evaluation, exchange.id);
+  }
+
+  if (!forces.length) {
+    wrap.append(el('p', 'why-empty', '판정 근거를 계산할 데이터가 아직 없습니다.'));
+    return wrap;
+  }
+
+  const head = el('div', 'why-head');
+  head.append(el('span', 'why-title', `왜 ${grade.label}인가`));
+  head.append(el('span', 'why-basis', `${exchange.name} 기준`));
+  head.title = [
+    '캔들 카테고리는 이 거래소의 일봉·4시간·1시간 점수를 주기 가중(0.5·0.3·0.2)으로 접은 값입니다.',
+    '최종 시그널은 거래소 여러 곳의 평균이라 이 값과 정확히 같지는 않습니다.',
+    '가중에는 ADX 국면 조정이 이미 반영돼 있습니다.',
+  ].join(' ');
+  wrap.append(head);
+
+  const list = el('div', 'force-list');
+  for (const force of forces) {
+    const row = el('div', 'force-row');
+    row.append(el('span', 'force-label', force.label));
+
+    const track = el('span', 'force-track');
+    const left = el('span', 'force-half left');
+    const right = el('span', 'force-half right');
+    /*
+     * 0 을 매수 쪽으로 몰면 '시장 심리 0' 이 빨간 매수 막대로 보인다 — 당기지
+     * 않는 것과 약하게 당기는 것은 다르다. 회색으로 따로 그린다.
+     */
+    const side = force.pull > 0 ? 'buy' : force.pull < 0 ? 'sell' : 'flat';
+    const bar = el('i', `force-bar ${side}`);
+    // 0점이어도 카테고리가 참여했다는 사실은 보여야 하므로 최소 폭을 준다.
+    bar.style.width = `${Math.max(2, Math.round(force.ratio * 100))}%`;
+    (force.pull < 0 ? left : right).append(bar);
+    track.append(left, el('i', 'force-axis'), right);
+    row.append(track);
+
+    row.append(el('span', `force-score ${toneOf(force.pull)}`, formatScore(force.score)));
+    row.title = `${force.label} ${formatScore(force.score)}점 × 가중 ${force.weight} = 당기는 힘 ${formatScore(force.pull)}`;
+    list.append(row);
+  }
+  wrap.append(list);
+
+  const sentence = explainForces(forces, grade);
+  if (sentence) wrap.append(el('p', 'why-text', sentence));
+
+  const note = overheatNote(forces);
+  if (note) wrap.append(el('p', `why-note ${note.tone}`, note.text));
+
+  return wrap;
 }
 
 /** 실시간 수급 한 줄 — 캔들 지표와 성질이 달라 따로 보여준다. */
@@ -473,6 +569,21 @@ function signalRow(agreement, grade, evaluation) {
     const breakdown = el('span', 'signal-breakdown', parts.join(' · '));
     breakdown.title = '캔들 합의 · 실시간 수급 · 시장 심리를 3.7 : 1.0 : 0.6 으로 합친 값입니다';
     score.append(breakdown);
+  }
+
+  /*
+   * 19.9 를 '중립' 이라고만 적으면 매수 기준선(20.0)에서 0.1점 모자란 상태와
+   * 0점짜리 중립이 화면에서 똑같아 보인다. 등급 산출은 그대로 두고 표시만 더한다.
+   */
+  const gap = gradeGap(agreement?.score ?? null);
+  if (gap) {
+    const chip = el(
+      'span',
+      `signal-gap${isNearBoundary(gap) ? ' near' : ''}`,
+      `${gap.direction === 'up' ? '↑' : '↓'} ${gap.label}까지 ${gap.gap}점`,
+    );
+    chip.title = `현재 ${formatScore(agreement.score)}점 · ${gap.label} 기준선까지 ${gap.gap}점 남았습니다. 등급 기준은 그대로입니다.`;
+    score.append(chip);
   }
 
   const total = agreement?.total ?? 0;
@@ -1297,6 +1408,110 @@ function renderNews() {
 
 // ── 종목 선택 패널 ───────────────────────────────────────────
 
+/**
+ * 시그널 읽는 법. 접이식이라 평소 화면을 밀어내지 않는다.
+ *
+ * 등급 구간·카테고리 가중은 config 에서 그대로 읽어 만든다. 문구에 숫자를
+ * 적어 두면 기준을 바꿨을 때 설명만 옛 값으로 남는다.
+ */
+function renderHelpPanel() {
+  dom.help.hidden = !state.helpOpen;
+  dom.helpToggle.setAttribute('aria-expanded', String(state.helpOpen));
+  if (!state.helpOpen) return;
+
+  const t = GRADE_THRESHOLDS;
+  // 화면 다른 곳과 같은 진짜 빼기 기호(−)를 쓴다. ASCII 하이픈은 폭이 달라 표가 흔들린다.
+  const point = (value) => (value < 0 ? `−${Math.abs(value)}` : `+${value}`);
+  const bands = [
+    { grade: GRADES.strongBuy, range: `${point(t.strongBuy)}점 이상` },
+    { grade: GRADES.buy, range: `${point(t.buy)} ~ ${point(t.strongBuy)}점` },
+    { grade: GRADES.neutral, range: `${point(t.sell)} ~ ${point(t.buy)}점` },
+    { grade: GRADES.sell, range: `${point(t.strongSell)} ~ ${point(t.sell)}점` },
+    { grade: GRADES.strongSell, range: `${point(t.strongSell)}점 이하` },
+  ];
+
+  const grades = el('div', 'help-grades');
+  for (const band of bands) {
+    const row = el('div', 'help-grade-row');
+    row.append(
+      el('span', `grade grade-${band.grade.key}`, band.grade.label),
+      el('span', 'help-grade-range', band.range),
+      el('span', 'help-grade-action', actionOf(band.grade)),
+    );
+    grades.append(row);
+  }
+
+  const weights = el('ul', 'help-weights');
+  for (const category of CATEGORIES) {
+    const item = el('li');
+    item.append(
+      el('span', 'help-weight-label', category.label),
+      el('span', 'help-weight-value', `가중 ${category.weight}`),
+      el('span', 'help-weight-note', category.indicators.length + '개 지표'),
+    );
+    weights.append(item);
+  }
+
+  const section = (title, ...children) => {
+    const node = el('section', 'help-section');
+    node.append(el('h3', null, title));
+    node.append(...children);
+    return node;
+  };
+
+  const paragraph = (text) => el('p', null, text);
+
+  dom.help.replaceChildren(
+    section('등급이 뜻하는 것', grades, paragraph(
+      `점수는 −100 ~ +100 입니다. 경계값은 중립이 아니라 행동 쪽에 붙습니다 — 정확히 ${point(t.buy)}이면 매수, ${point(t.sell)}이면 매도, ${point(t.strongBuy)}이면 강력매수입니다. 경계에 걸친 점수를 '신호 없음'으로 버리지 않기 위해서입니다.`,
+    )),
+
+    section(
+      '가격이 크게 올랐는데 왜 매수가 아닌가요?',
+      paragraph(
+        '이 화면은 "올랐나?"가 아니라 "지금 사도 되나?"를 잽니다. 그래서 많이 오를수록 지금 진입은 오히려 불리하게 잡힙니다.',
+      ),
+      paragraph(
+        '크게 오르면 추세 지표(이동평균·MACD·ADX)는 강한 매수를 가리키지만, 같은 상승이 모멘텀 지표를 과매수(RSI 70 이상)로, 변동성 지표를 볼린저 상단 이탈로 밀어 올립니다. 둘이 서로 상쇄되면 합계는 중립 근처에 머뭅니다.',
+      ),
+      paragraph(
+        '카드의 「왜 이 등급인가」 막대가 그 상쇄를 그대로 보여줍니다. 오른쪽으로 뻗은 막대가 매수 힘, 왼쪽이 매도 힘이고 길이는 가중까지 반영한 크기입니다.',
+      ),
+      paragraph(
+        `점수 옆의 '${'↑'} 매수까지 N점'은 다음 등급 경계까지 남은 거리입니다. ${t.buy - 0.1}점과 0점은 둘 다 중립이지만 뜻이 전혀 다릅니다.`,
+      ),
+    ),
+
+    section(
+      '시그널 점수와 합의도는 다른 값입니다',
+      paragraph(
+        '점수는 거래소들의 등가중 평균이고, 합의도는 거래소들이 서로 같은 방향을 가리키는 정도입니다. "점수 +18 중립 · 합의 4/6 매수 우세"는 모순이 아니라 그대로 읽으면 되는 상태입니다.',
+      ),
+      paragraph(
+        '합의도는 거래소들의 캔들 판정만 셉니다. 실시간 수급은 업비트 단독 신호라 애초에 거래소 간 합의에 참여할 수 없습니다.',
+      ),
+    ),
+
+    section(
+      '카테고리와 가중',
+      weights,
+      paragraph(
+        '카테고리 안에서는 단순 평균, 카테고리 사이에만 가중을 둡니다. 서로 닮은 지표가 같은 근거를 여러 번 세지 않게 하기 위해서입니다.',
+      ),
+      paragraph(
+        'ADX가 국면을 판별해 가중을 자동 조정합니다 — 추세장에서는 추세 ×1.5 · 모멘텀 ×0.7, 횡보장에서는 추세 ×0.6 · 모멘텀 ×1.3. 추세장의 과매수는 "비싸다"가 아니라 "계속 오른다"는 뜻이기 때문입니다. 카드 막대의 가중에는 이 조정이 이미 반영돼 있습니다.',
+      ),
+    ),
+
+    section(
+      '이것으로 알 수 없는 것',
+      paragraph(
+        '진입·청산 시점, 목표가, 손절가를 알려주지 않습니다. 공개 시장 데이터에 기술적 지표를 적용한 계산 결과일 뿐이며 미래 가격을 예측하지 않습니다.',
+      ),
+    ),
+  );
+}
+
 function renderCoinPanel() {
   dom.panel.hidden = !state.panelOpen;
   dom.panelToggle.setAttribute('aria-expanded', String(state.panelOpen));
@@ -1608,6 +1823,11 @@ function bindEvents() {
   dom.transitionsClear.addEventListener('click', () => {
     transitions.clear();
     renderTransitions();
+  });
+
+  dom.helpToggle.addEventListener('click', () => {
+    state.helpOpen = !state.helpOpen;
+    renderHelpPanel();
   });
 
   dom.panelToggle.addEventListener('click', async () => {

@@ -399,6 +399,8 @@ main {
 .signal-score {
   display: flex;
   align-items: baseline;
+  /* 분해값과 경계 표시가 함께 붙으므로 좁은 카드에서는 접혀야 한다. */
+  flex-wrap: wrap;
   gap: 5px;
 }
 
@@ -499,6 +501,206 @@ main {
 .reason-sep {
   font-size: 11.5px;
   color: var(--line);
+}
+
+/* ── 왜 이 등급인가: 카테고리 줄다리기 ───────────────────── */
+
+/*
+ * 매수 힘은 오른쪽·빨강, 매도 힘은 왼쪽·파랑으로 뻗는다. 색은 이 파일 전체와
+ * 같은 한국 시장 관례를 따른다. 막대 길이는 점수가 아니라 '점수 × 가중'의
+ * 상대 크기다 — 가중을 빼면 왜 낮은 점수가 결과를 뒤집는지 설명되지 않는다.
+ */
+.why {
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.why-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.why-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.why-basis {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.force-list {
+  display: grid;
+  gap: 4px;
+}
+
+.force-row {
+  display: grid;
+  grid-template-columns: 54px 1fr 42px;
+  align-items: center;
+  gap: 8px;
+}
+
+.force-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.force-track {
+  display: flex;
+  align-items: center;
+  height: 10px;
+}
+
+.force-half {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.force-half.left {
+  justify-content: flex-end;
+}
+
+.force-half.right {
+  justify-content: flex-start;
+}
+
+.force-bar {
+  flex: none;
+  height: 100%;
+  border-radius: 2px;
+}
+
+.force-bar.buy {
+  background: var(--rise);
+}
+
+.force-bar.sell {
+  background: var(--fall);
+}
+
+/* 당기지 않는 카테고리. 어느 쪽 색도 주지 않는다. */
+.force-bar.flat {
+  background: var(--flat);
+}
+
+/* 0 이 어디인지 보이지 않으면 좌우 길이를 비교할 기준이 없다. */
+.force-axis {
+  flex: 0 0 1px;
+  width: 1px;
+  height: 14px;
+  background: var(--line);
+}
+
+.force-score {
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.force-score.buyish {
+  color: var(--rise);
+}
+
+.force-score.sellish {
+  color: var(--fall);
+}
+
+.force-score.flat {
+  color: var(--muted);
+}
+
+.why-text {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.why-note {
+  margin: 6px 0 0;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.why-note.hot {
+  color: #ffb4ae;
+  background: rgba(240, 71, 62, 0.1);
+  border: 1px solid rgba(240, 71, 62, 0.28);
+}
+
+.why-note.cold {
+  color: #a8c8ff;
+  background: rgba(47, 124, 246, 0.1);
+  border: 1px solid rgba(47, 124, 246, 0.28);
+}
+
+.why-empty {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* ── 등급 행동 언어 · 경계까지 남은 점수 ─────────────────── */
+
+.verdict {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.grade-action {
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.signal-gap {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-family: var(--font-num);
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* 경계에 붙은 점수는 등급 라벨만으로 구분되지 않으므로 따로 강조한다. */
+.signal-gap.near {
+  color: var(--text);
+  border-color: #4a5470;
+  background: rgba(122, 162, 255, 0.12);
+  animation: gap-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes gap-pulse {
+  0%,
+  100% {
+    border-color: #4a5470;
+  }
+  50% {
+    border-color: var(--focus);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-gap.near {
+    animation: none;
+  }
 }
 
 /* ── 시그니처: 공유 축 게이지 ────────────────────────────── */
@@ -1446,6 +1648,97 @@ main {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
+}
+
+/* ── 읽는 법 패널 ────────────────────────────────────────── */
+
+.help-panel {
+  display: grid;
+  gap: 18px;
+  max-width: 1240px;
+  margin: 12px auto 0;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+@media (min-width: 900px) {
+  .help-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.help-section h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.help-section p {
+  margin: 0 0 7px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-dim);
+}
+
+.help-section p:last-child {
+  margin-bottom: 0;
+}
+
+.help-grades {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.help-grade-row {
+  display: grid;
+  grid-template-columns: 74px 104px 1fr;
+  align-items: center;
+  gap: 9px;
+}
+
+.help-grade-row .grade {
+  justify-self: start;
+  text-align: center;
+}
+
+.help-grade-range {
+  font-family: var(--font-num);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.help-grade-action {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.help-weights {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.help-weights li {
+  display: grid;
+  grid-template-columns: 84px 70px 1fr;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.help-weight-value {
+  font-family: var(--font-num);
+  color: var(--text);
+}
+
+.help-weight-note {
+  color: var(--muted);
 }
 
 .chosen {
