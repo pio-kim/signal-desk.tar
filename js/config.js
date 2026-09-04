@@ -60,6 +60,22 @@ export const CATEGORIES = [
     indicators: ['bollinger', 'atr'],
   },
   { key: 'volume', label: '거래량', weight: 0.7, candleBased: true, indicators: ['volume', 'obv'] },
+  /*
+   * 거짓 무빙은 '돌파가 실패했다' 는 사실만 본다. 다른 카테고리와 달리 평소에는
+   * 판정할 것이 없어 **분모에서 통째로 빠진다**(트랩도 휩쏘도 없으면 null).
+   * 늘 0점으로 참여하면 아무 일도 없는 종목의 점수를 매번 중립 쪽으로 끌어당긴다.
+   *
+   * ⚠️ 재료(지지/저항·거래량)가 이미 다른 지표에 들어 있어 근거가 일부 겹친다.
+   * 그래도 점수에 넣는 것은 사용자 결정이다 — 겹치는 만큼 가중을 추세(1.2)보다
+   * 낮게 두어 완화한다.
+   */
+  {
+    key: 'traps',
+    label: '거짓 무빙',
+    weight: 0.9,
+    candleBased: true,
+    indicators: ['falseBreak', 'whipsaw'],
+  },
   {
     key: 'flow',
     label: '실시간 수급',

@@ -18,6 +18,8 @@ import {
   scoreStochastic,
   scoreTrend,
   scoreVolume,
+  scoreFalseBreak,
+  scoreWhipsaw,
 } from '../js/signal.js';
 import { CATEGORIES, candleCategories } from '../js/config.js';
 
@@ -139,6 +141,63 @@ test('scoreObv: 가격과 어긋나면 점수를 깎는다', () => {
   assert.equal(scoreObv(null, true), null);
 });
 
+test('scoreFalseBreak: 부호는 누가 물렸는지를 따른다', () => {
+  const bull = { kind: 'bull-trap', status: 'confirmed', bars: 3, weak: false, volumeRatio: 1.4 };
+  const bear = { kind: 'bear-trap', status: 'confirmed', bars: 2, weak: false, volumeRatio: 1.4 };
+
+  // 저항 위에서 산 쪽이 물린 불트랩은 매도 신호다.
+  assert.equal(scoreFalseBreak(bull).score, -60);
+  assert.equal(scoreFalseBreak(bull).verdict, '불트랩 확정');
+  assert.equal(scoreFalseBreak(bear).score, 60);
+  assert.equal(scoreFalseBreak(bear).verdict, '베어트랩 확정');
+});
+
+test('scoreFalseBreak: 거래량이 실리지 않은 돌파가 되돌아오면 더 세게 본다', () => {
+  const weak = { kind: 'bull-trap', status: 'confirmed', bars: 3, weak: true, volumeRatio: 0.4 };
+  assert.equal(scoreFalseBreak(weak).score, -80);
+  assert.equal(scoreFalseBreak(weak).display, '3봉 만에 복귀 · 거래량 0.40배');
+});
+
+/*
+ * 아직 되돌아오지 않은 돌파는 진짜 돌파일 수도 있다. 방향을 정하지 않는 것이
+ * 이 지표의 핵심이다 — 여기서 미리 점수를 주면 진짜 돌파를 매번 매도로 센다.
+ */
+test('scoreFalseBreak: 미확정 돌파는 점수를 주지 않는다', () => {
+  const pending = { kind: 'bull-trap', status: 'pending', bars: 2, weak: true, volumeRatio: 0.5 };
+  const result = scoreFalseBreak(pending);
+
+  assert.equal(result.score, null);
+  assert.equal(result.verdict, '돌파 감시 중');
+  assert.equal(result.display, '저항 이탈 2봉째 · 미확정');
+});
+
+/*
+ * 불트랩과 베어트랩이 같은 구간에 동시에 잡히는 일이 실제로 있다(ETH 일봉에서
+ * 관측). 점수는 최신 것만 쓰되, 하나만 보고 판단하지 않도록 건수를 적는다.
+ */
+test('scoreFalseBreak: 겹친 트랩이 있으면 건수를 함께 적는다', () => {
+  const trap = { kind: 'bull-trap', status: 'confirmed', bars: 1, weak: false, volumeRatio: 1.2 };
+  assert.equal(scoreFalseBreak(trap, 2).display, '1봉 만에 복귀 · 거래량 1.20배 · 최근 2건 더');
+  assert.equal(scoreFalseBreak(trap, 0).display, '1봉 만에 복귀 · 거래량 1.20배');
+  assert.equal(scoreFalseBreak(trap, 2).score, scoreFalseBreak(trap, 0).score, '점수는 최신 것만');
+});
+
+test('scoreFalseBreak: 감지된 것이 없으면 "데이터 부족"이 아니라 "없음"이다', () => {
+  const result = scoreFalseBreak(null);
+  assert.equal(result.score, null);
+  assert.equal(result.verdict, '없음');
+  assert.equal(result.display, '감지 없음');
+});
+
+test('scoreWhipsaw: 방향이 아니라 신뢰도를 말하므로 0점이다', () => {
+  const result = scoreWhipsaw({ crosses: 5, window: 20, period: 20, points: [] });
+  assert.equal(result.score, 0);
+  assert.equal(result.verdict, '휩쏘 구간 · 신호 신뢰도 낮음');
+  assert.equal(result.display, '20봉 중 MA20 교차 5회');
+
+  assert.equal(scoreWhipsaw(null).score, null, '없으면 분모에서도 빠진다');
+});
+
 // ── 카테고리 계층 ────────────────────────────────────────────
 
 test('categoryScore: 카테고리 안에서는 단순 평균이다', () => {
@@ -234,20 +293,37 @@ test('gradeOf: 등급 경계', () => {
 
 // ── 봉 주기 평가 ─────────────────────────────────────────────
 
-test('evaluateTimeframe: 캔들 기반 카테고리 4개와 지표 10개를 낸다', () => {
+test('evaluateTimeframe: 캔들 기반 카테고리 5개와 지표 12개를 낸다', () => {
   const closes = Array.from({ length: 200 }, (_, i) => 100 + Math.sin(i / 6) * 12 + i * 0.4);
   const result = evaluateTimeframe(candlesFrom(closes));
 
   assert.deepEqual(
     result.categories.map((c) => c.key),
-    ['trend', 'momentum', 'volatility', 'volume'],
+    ['trend', 'momentum', 'volatility', 'volume', 'traps'],
     '실시간 수급은 봉 주기 차원에 넣지 않는다',
   );
   assert.deepEqual(
     indicatorsOf(result).map((entry) => entry.key),
-    ['ma', 'macd', 'adx', 'rsi', 'stochastic', 'divergence', 'bollinger', 'atr', 'volume', 'obv'],
+    [
+      'ma', 'macd', 'adx',
+      'rsi', 'stochastic', 'divergence',
+      'bollinger', 'atr',
+      'volume', 'obv',
+      'falseBreak', 'whipsaw',
+    ],
   );
-  assert.ok(indicatorsOf(result).every((entry) => entry.available), '전부 계산 가능해야 한다');
+  /*
+   * 거짓 무빙은 감지됐을 때만 available 이다. 나머지 열 개는 캔들만 있으면
+   * 언제나 계산되므로 여기서 갈라 검사한다.
+   */
+  const always = indicatorsOf(result).filter((entry) => !['falseBreak', 'whipsaw'].includes(entry.key));
+  assert.ok(always.every((entry) => entry.available), '거짓 무빙 외 열 개는 전부 계산 가능해야 한다');
+  assert.ok(
+    indicatorsOf(result)
+      .filter((entry) => ['falseBreak', 'whipsaw'].includes(entry.key))
+      .every((entry) => entry.display !== '데이터 부족'),
+    '봉이 충분하면 감지 결과를 적어야 한다 — 없으면 "감지 없음"이지 "데이터 부족"이 아니다',
+  );
   assert.ok(result.score >= -100 && result.score <= 100);
   assert.equal(result.grade.key, gradeOf(result.score).key);
   assert.ok(['trending', 'ranging', 'neutral'].includes(result.regime.key));
@@ -291,7 +367,7 @@ test('evaluateTimeframe: 캔들이 부족하면 점수 없이 사유를 남긴�
 test('evaluateTimeframe: 캔들이 없어도 예외를 던지지 않는다', () => {
   const result = evaluateTimeframe([]);
   assert.equal(result.score, null);
-  assert.equal(indicatorsOf(result).length, 10);
+  assert.equal(indicatorsOf(result).length, 12);
 });
 
 test('combineTimeframes: 일봉 0.5 / 4시간 0.3 / 1시간 0.2 가중', () => {
@@ -317,17 +393,37 @@ test('CATEGORIES: 지시서에 정한 카테고리와 가중치를 유지한다'
       ['momentum', 1.0, true],
       ['volatility', 0.8, true],
       ['volume', 0.7, true],
+      ['traps', 0.9, true],
       ['flow', 1.0, false],
       ['sentiment', 0.6, false],
     ],
   );
 });
 
-test('CATEGORIES: 캔들 기반 카테고리는 넷이고 지표는 열 개다', () => {
+test('CATEGORIES: 캔들 기반 카테고리는 다섯이고 지표는 열두 개다', () => {
   const candle = candleCategories();
-  assert.equal(candle.length, 4);
-  assert.equal(candle.flatMap((c) => c.indicators).length, 10);
-  // 실시간 수급은 전체 가중의 21% 를 차지한다(1.0 / 4.7).
+  assert.equal(candle.length, 5);
+  assert.equal(candle.flatMap((c) => c.indicators).length, 12);
+  // 실시간 수급은 전체 가중의 16.1% 를 차지한다(1.0 / 6.2).
   const candleWeight = candle.reduce((sum, c) => sum + c.weight, 0);
-  assert.equal(candleWeight, 3.7);
+  assert.equal(Math.round(candleWeight * 10) / 10, 4.6);
+});
+
+
+/*
+ * 거짓 무빙은 평소에 판정할 것이 없다. 늘 0점으로 참여하면 아무 일도 없는
+ * 종목의 점수를 매번 중립 쪽으로 끌어당긴다 — 분모에서 통째로 빠져야 한다.
+ */
+test('evaluateTimeframe: 거짓 무빙이 없으면 그 카테고리는 점수를 내지 않는다', () => {
+  // 한 방향으로만 오르는 캔들 — 되돌아온 돌파도, 톱질도 없다.
+  const closes = Array.from({ length: 120 }, (_, i) => 100 + i * 1.5);
+  const result = evaluateTimeframe(candlesFrom(closes));
+  const traps = result.categories.find((category) => category.key === 'traps');
+
+  assert.equal(traps.score, null, '감지된 것이 없으면 카테고리 점수도 없다');
+  assert.ok(
+    traps.indicators.every((entry) => entry.display === '감지 없음'),
+    '"데이터 부족"이 아니라 "감지 없음"으로 적어야 한다',
+  );
+  assert.ok(result.score !== null, '나머지 카테고리만으로 점수는 나와야 한다');
 });

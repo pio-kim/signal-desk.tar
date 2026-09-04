@@ -22,6 +22,7 @@ import {
   stochastic,
   volumeRatio,
 } from './indicators.js';
+import { falseBreakouts, whipsaw } from './patterns.js';
 import {
   ADX_REGIMES,
   GRADES,
@@ -211,6 +212,66 @@ export function scoreObv(slope, priceRising) {
   return slope > 0 ? { score: 60, verdict: '매수 우위', display } : { score: -60, verdict: '매도 우위', display };
 }
 
+/**
+ * 찾아봤지만 없을 때. 점수가 없다는 점은 '데이터 부족'과 같지만 뜻이 정반대다 —
+ * 이쪽은 판정이 끝난 상태다. 화면에 이유를 적기 위해 문구를 함께 돌려준다.
+ */
+const absent = (verdict, display) => ({ score: null, verdict, display });
+
+/**
+ * 거짓 돌파 — 불트랩 / 베어트랩.
+ *
+ * 되돌아온 것만 점수를 준다. 아직 레벨 밖에 있는 돌파(pending)는 진짜 돌파일
+ * 수도 있어 방향을 정하지 않는다 — 화면에는 '감시 중'으로 적고 점수는 비운다.
+ *
+ * 부호는 **누가 물렸는지**를 따른다. 저항 위에서 산 사람이 물린 불트랩은
+ * 매도 신호이고, 지지 아래에서 판 사람이 물린 베어트랩은 매수 신호다.
+ *
+ * @param {object|null} trap 가장 최근 트랩. 트랩의 뜻이 '마지막 시도가
+ *   실패했다' 이므로 여러 건이 겹칠 때는 최신 것이 지금 유효한 사실이다.
+ * @param {number} more 같은 구간에 남은 트랩 수. 실제로 불트랩과 베어트랩이
+ *   동시에 잡히는 구간이 있어(실측: ETH 일봉) 하나만 보고 판단하지 않도록
+ *   화면에 건수를 함께 적는다. 점수는 최신 것만 쓴다.
+ */
+export function scoreFalseBreak(trap, more = 0) {
+  if (!trap) return absent('없음', '감지 없음');
+
+  const side = trap.kind === 'bull-trap' ? '저항' : '지지';
+  if (trap.status === 'pending') {
+    return absent('돌파 감시 중', `${side} 이탈 ${trap.bars}봉째 · 미확정`);
+  }
+
+  /*
+   * 거래량이 실리지 않은 돌파가 되돌아온 것은 애초에 사려는 힘이 없었다는
+   * 뜻이라 더 강한 신호로 본다. 거래량이 터졌는데도 되돌아온 것은 힘이
+   * 부딪친 흔적이라 그만큼은 아니다.
+   */
+  const score = (trap.weak ? 80 : 60) * (trap.kind === 'bull-trap' ? -1 : 1);
+  const volume = trap.volumeRatio === null ? '거래량 미상' : `거래량 ${trap.volumeRatio.toFixed(2)}배`;
+
+  return {
+    score,
+    verdict: trap.kind === 'bull-trap' ? '불트랩 확정' : '베어트랩 확정',
+    display: `${trap.bars}봉 만에 복귀 · ${volume}${more > 0 ? ` · 최근 ${more}건 더` : ''}`,
+  };
+}
+
+/**
+ * 휩쏘 — 방향이 아니라 **신뢰도**를 말하는 값이다.
+ *
+ * 톱질 구간에서는 어느 쪽 신호도 곧 뒤집힌다. 그래서 매수도 매도도 아닌 0점을
+ * 주어 다른 카테고리가 만든 점수를 중립 쪽으로 끌어당기게 한다. 방향이 없는
+ * 값에 억지로 부호를 주지 않는 것은 ATR·거래량과 같은 원칙이다.
+ */
+export function scoreWhipsaw(saw) {
+  if (!saw) return absent('없음', '감지 없음');
+  return {
+    score: 0,
+    verdict: '휩쏘 구간 · 신호 신뢰도 낮음',
+    display: `${saw.window}봉 중 MA${saw.period} 교차 ${saw.crosses}회`,
+  };
+}
+
 // ── 카테고리와 봉 주기 ──────────────────────────────────────
 
 /** 계산 가능한 지표만으로 낸 단순 평균. 카테고리 내부에는 가중을 두지 않는다. */
@@ -269,6 +330,8 @@ const INDICATOR_LABELS = {
   atr: `ATR(${PERIODS.atr}) 백분위`,
   volume: `거래량 직전봉/${PERIODS.volume}봉 평균`,
   obv: `OBV ${PERIODS.obv}봉 방향`,
+  falseBreak: '거짓 돌파 (불·베어 트랩)',
+  whipsaw: `휩쏘 · MA${PERIODS.maShort} 교차`,
   orderbook: '호가 불균형',
   taker: '체결강도',
 };
@@ -278,7 +341,12 @@ function entryOf(key, evaluated) {
   if (!evaluated) {
     return { key, label, score: null, verdict: '—', display: '데이터 부족', available: false };
   }
-  return { key, label, available: true, ...evaluated };
+  /*
+   * 점수가 없는 판정도 있다 — '찾아봤지만 없다'(absent)와 '아직 방향을 정하지
+   * 않았다'(돌파 감시 중). 위의 '찾아볼 수 없다'와 달리 이유가 있으므로 문구는
+   * 그대로 쓰되, 점수가 없으니 평균에는 넣지 않는다.
+   */
+  return { key, label, ...evaluated, available: present(evaluated.score) };
 }
 
 /**
@@ -350,6 +418,18 @@ export function evaluateTimeframe(candles) {
             closed >= 1 ? closes[closed] > closes[closed - 1] : null,
           )
         : null;
+
+    /*
+     * 거짓 무빙은 지지/저항선 위에 얹혀 계산되므로 레벨을 만들 만큼 봉이
+     * 있어야 한다. 부족하면 '없음'이 아니라 '데이터 부족'이 맞다 —
+     * 찾아본 것이 아니라 찾아볼 수 없었던 것이다.
+     */
+    const enoughForTraps = candles.length >= PERIODS.maShort * 2;
+    const traps = enoughForTraps ? falseBreakouts(candles) : [];
+    evaluated.falseBreak = enoughForTraps
+      ? scoreFalseBreak(traps[0] ?? null, Math.max(0, traps.length - 1))
+      : null;
+    evaluated.whipsaw = enoughForTraps ? scoreWhipsaw(whipsaw(candles)) : null;
   }
 
   const regime = regimeOf(adxValue);

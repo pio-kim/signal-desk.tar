@@ -232,6 +232,77 @@ function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote }) {
     }
   }
 
+  /*
+   * 거짓 무빙 — 돌파가 실패한 자리. 레벨선은 '라인형'을 끄고 봐도 뜻이 통하도록
+   * 여기서 다시 그린다(그 레벨을 뚫었다는 사실이 이 표시의 전부이기 때문이다).
+   */
+  if (categories.has('traps')) {
+    // 휩쏘 띠를 먼저 그린다. SVG 는 나중에 그린 것이 위로 올라오므로, 순서를
+    // 뒤집으면 배경 띠가 트랩 마커를 덮어 흐려진다(실측).
+    const saw = patterns.traps.whipsaw;
+    let sawLegend = null;
+    if (saw) {
+      // 톱질이 일어난 구간의 고·저를 그대로 띠로 덮는다. 그 폭이 곧 휩쏘의 크기다.
+      const from = Math.max(0, count - saw.window);
+      const slice = view.candles.slice(from);
+      const top = Math.max(...slice.map((candle) => candle.high));
+      const bottom = Math.min(...slice.map((candle) => candle.low));
+      const y1 = yPrice(top);
+      const y2 = yPrice(bottom);
+      layer.append(
+        el('rect', {
+          x: xOf(from).toFixed(1),
+          y: Math.min(y1, y2).toFixed(1),
+          width: Math.max(1, xOf(count - 1) - xOf(from)).toFixed(1),
+          height: Math.max(1, Math.abs(y2 - y1)).toFixed(1),
+          class: 'pattern-whipsaw',
+        }),
+      );
+      for (const index of saw.points) {
+        layer.append(dot({ index, price: view.candles[index].close }, xOf, yPrice, 'pattern-dot whipsaw'));
+      }
+      // 그리는 순서와 읽는 순서는 다르다 — 범례는 트랩을 먼저 읽는 것이 낫다.
+      sawLegend = {
+        cls: 'whipsaw',
+        text: `휩쏘 구간 · 최근 ${saw.window}봉에서 MA${saw.period} 교차 ${saw.crosses}회 · 방향 신호 신뢰도 낮음`,
+      };
+    }
+  
+
+    for (const trap of patterns.traps.falseBreakouts) {
+      const bull = trap.kind === 'bull-trap';
+      const cls = bull ? 'trap-bull' : 'trap-bear';
+      const pending = trap.status === 'pending';
+
+      layer.append(
+        levelLine(trap.level.price, yPrice, plotWidth, `pattern-line trap-level ${cls}`),
+      );
+
+      const breakPoint = { index: trap.breakIndex, price: trap.breakPrice };
+      const endIndex = trap.returnIndex ?? count - 1;
+      const endPoint = { index: endIndex, price: view.candles[endIndex].close };
+      layer.append(
+        segment(breakPoint, endPoint, xOf, yPrice, `pattern-line ${cls}${pending ? ' pending' : ''}`),
+      );
+      layer.append(dot(breakPoint, xOf, yPrice, `pattern-dot ${cls}`));
+      if (!pending) layer.append(dot(endPoint, xOf, yPrice, `pattern-dot ${cls}`));
+
+      // 저항은 '돌파', 지지는 '이탈' 이라고 적는다 — '지지를 돌파했다'는 어색하다.
+      const side = bull ? '저항' : '지지';
+      const verb = bull ? '돌파' : '이탈';
+      const volume =
+        trap.volumeRatio === null ? '거래량 미상' : `돌파봉 거래량 ${trap.volumeRatio.toFixed(2)}배`;
+      legend.push({
+        cls,
+        text: pending
+          ? `돌파 감시 중 · ${side} ${formatPrice(trap.level.price, quote)} ${verb} ${trap.bars}봉째 · 되돌아오면 ${bull ? '불트랩' : '베어트랩'} · ${volume}`
+          : `${bull ? '불트랩' : '베어트랩'} 확정 · ${side} ${formatPrice(trap.level.price, quote)} ${verb} 후 ${trap.bars}봉 만에 복귀 · ${volume}`,
+      });
+    }
+
+    if (sawLegend) legend.push(sawLegend);
+  }
+
   if (categories.has('volume')) {
     const profile = patterns.volume.profile;
     if (profile) {

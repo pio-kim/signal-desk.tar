@@ -125,7 +125,7 @@ export function crossExchangeGap({ krwPrice, usdtPrice, usdtKrw }) {
  *
  * 수급·심리를 봉 주기별 점수에 각각 더하면 같은 값이 세 번 세어진다. 캔들
  * 계층을 끝까지 접은 뒤 마지막에 한 번만 얹는 것이 옳다. 가중은 카테고리 정의를
- * 그대로 쓴다 — 캔들 3.7 : 수급 1.0 : 심리 0.6 이므로 수급 18.9%, 심리 11.3% 다.
+ * 그대로 쓴다 — 캔들 4.6 : 수급 1.0 : 심리 0.6 이므로 수급 16.1%, 심리 9.7% 다.
  *
  * @param {number|null} consensusScore 거래소 합의(캔들) 점수
  * @param {{flow?: number|null, sentiment?: number|null}} extras

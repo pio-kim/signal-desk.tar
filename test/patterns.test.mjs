@@ -12,6 +12,8 @@ import {
   doubleExtremes,
   headAndShoulders,
   triangle,
+  falseBreakouts,
+  whipsaw,
 } from '../js/patterns.js';
 
 /** near 비교. 나눗셈이 섞인 값(피보나치·VWAP)은 정확 비교가 안 통한다. */
@@ -289,4 +291,124 @@ test('triangle: 고점이 수평이고 저점만 오르면 상승삼각형', () 
 test('triangle: 스윙이 부족하면 null', () => {
   const candles = hl([100, 101, 102], [90, 91, 92]);
   assert.equal(triangle(candles, { span: 2 }), null);
+});
+
+// ── 거짓 무빙 ────────────────────────────────────────────────
+
+/**
+ * 저항 100 을 세 번 때린 뒤 뚫었다가 되돌아오는 모양을 만든다.
+ * 종가 = 고저의 중간이므로 hl() 대신 종가를 직접 지정하는 캔들을 쓴다.
+ */
+function bars(closes, volumes = null) {
+  return closes.map((close, i) => ({
+    open: i === 0 ? close : closes[i - 1],
+    high: close + 0.5,
+    low: close - 0.5,
+    close,
+    volume: volumes ? volumes[i] : 100,
+  }));
+}
+
+/** 저항 100 을 세 번 찍는 톱니. 스윙 고점이 100 에 세 번 생긴다. */
+const TRIPLE_TOUCH = [
+  90, 92, 95, 98, 100, 98, 95, 92,
+  90, 92, 95, 98, 100, 98, 95, 92,
+  90, 92, 95, 98, 100, 98, 95, 92,
+  90, 92, 94, 96, 98,
+];
+
+test('falseBreakouts: 저항을 뚫고 되돌아오면 불트랩으로 확정한다', () => {
+  const closes = [...TRIPLE_TOUCH, 103, 104, 101, 97, 95, 93];
+  const traps = falseBreakouts(bars(closes), { span: 3 });
+
+  assert.equal(traps.length, 1);
+  const [trap] = traps;
+  assert.equal(trap.kind, 'bull-trap');
+  assert.equal(trap.status, 'confirmed');
+  assert.equal(trap.breakIndex, 29, '돌파가 시작된 봉');
+  assert.equal(trap.returnIndex, 32, '레벨 안쪽으로 되돌아온 봉');
+  assert.equal(trap.bars, 3);
+});
+
+test('falseBreakouts: 지지를 깨고 되돌아오면 베어트랩이다', () => {
+  // 지지 90 을 세 번 찍은 뒤 아래로 이탈했다 복귀한다.
+  const closes = [...TRIPLE_TOUCH.map((c) => c), 96, 94, 92, 86, 85, 91, 93];
+  const traps = falseBreakouts(bars(closes), { span: 3 });
+
+  const bear = traps.find((trap) => trap.kind === 'bear-trap');
+  assert.ok(bear, '지지 이탈 후 복귀를 잡아야 한다');
+  assert.equal(bear.status, 'confirmed');
+});
+
+/*
+ * 되돌아온 봉은 그 자체로 반대편 돌파처럼 보인다. 이 검사가 없으면 불트랩
+ * 하나가 불트랩 + 베어트랩 두 건으로 세어진다(실제로 그렇게 나왔다).
+ */
+test('falseBreakouts: 복귀 봉을 반대편 트랩으로 두 번 세지 않는다', () => {
+  const closes = [...TRIPLE_TOUCH, 103, 104, 101, 97, 95, 93];
+  const traps = falseBreakouts(bars(closes), { span: 3 });
+
+  assert.equal(traps.filter((trap) => trap.kind === 'bear-trap').length, 0);
+});
+
+test('falseBreakouts: 되돌아오지 않은 돌파는 미확정으로 남긴다', () => {
+  const closes = [...TRIPLE_TOUCH, 103, 104];
+  const [trap] = falseBreakouts(bars(closes), { span: 3 });
+
+  assert.equal(trap.status, 'pending');
+  assert.equal(trap.returnIndex, null);
+  assert.equal(trap.kind, 'bull-trap', '되돌아오면 누가 물리는지로 이름을 붙인다');
+});
+
+test('falseBreakouts: 관찰 창을 넘겨 버틴 돌파는 거짓이 아니다', () => {
+  // 돌파 후 6봉(확정 창 5봉 초과) 동안 레벨 위에 머문다.
+  const closes = [...TRIPLE_TOUCH, 103, 104, 105, 106, 107, 108, 109];
+  assert.deepEqual(falseBreakouts(bars(closes), { span: 3 }), []);
+});
+
+test('falseBreakouts: 돌파봉 거래량이 평균 미만이면 실리지 않은 돌파로 본다', () => {
+  const closes = [...TRIPLE_TOUCH, 103, 104, 101, 97, 95, 93];
+  const volumes = closes.map((_, i) => (i === 29 ? 20 : 100));
+  const [weak] = falseBreakouts(bars(closes, volumes), { span: 3 });
+  assert.equal(weak.weak, true);
+  near(weak.volumeRatio, 0.2, 1e-9, '돌파봉 거래량비');
+
+  const heavy = closes.map((_, i) => (i === 29 ? 300 : 100));
+  const [strong] = falseBreakouts(bars(closes, heavy), { span: 3 });
+  assert.equal(strong.weak, false);
+});
+
+test('falseBreakouts: 꼬리만 스친 것은 돌파로 보지 않는다', () => {
+  // 종가는 레벨 아래인데 고가만 레벨을 넘긴다.
+  const closes = [...TRIPLE_TOUCH, 100.2, 100.1, 97, 95];
+  const candles = bars(closes).map((candle, i) => (i >= 29 ? { ...candle, high: 110 } : candle));
+
+  assert.deepEqual(falseBreakouts(candles, { span: 3 }), []);
+});
+
+test('falseBreakouts: 봉이 부족하면 빈 배열', () => {
+  assert.deepEqual(falseBreakouts(bars([100, 101, 102]), { span: 3 }), []);
+});
+
+test('whipsaw: 기준선을 반복해 넘나들면 톱질로 본다', () => {
+  // MA5 위아래를 계속 오가는 톱니
+  const closes = Array.from({ length: 40 }, (_, i) => 100 + (i % 2 === 0 ? 4 : -4));
+  const result = whipsaw(bars(closes), { period: 5, window: 20, minCrosses: 4 });
+
+  assert.ok(result, '교차가 잦으면 감지돼야 한다');
+  assert.ok(result.crosses >= 4);
+  assert.equal(result.window, 20);
+  assert.equal(result.period, 5);
+});
+
+test('whipsaw: 한 방향으로만 가면 교차가 없어 null', () => {
+  const closes = Array.from({ length: 40 }, (_, i) => 100 + i * 2);
+  assert.equal(whipsaw(bars(closes), { period: 5, window: 20, minCrosses: 4 }), null);
+});
+
+test('whipsaw: 교차가 기준 미만이면 null', () => {
+  const closes = Array.from({ length: 40 }, (_, i) => 100 + i * 2);
+  // 한 번만 꺾이는 모양 — 교차 1회
+  closes.splice(30, 10, ...Array.from({ length: 10 }, (_, i) => 158 - i * 4));
+  assert.equal(whipsaw(bars(closes), { period: 5, window: 20, minCrosses: 4 }), null);
 });

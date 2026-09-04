@@ -911,7 +911,7 @@ const CHART_PERIODS = [
 ];
 
 /**
- * 참고용 차트선 네 갈래. 기본은 전부 꺼져 있다 — patterns.js 상단 주석대로
+ * 참고용 차트선 다섯 갈래. 기본은 전부 꺼져 있다 — patterns.js 상단 주석대로
  * 반전/지속 패턴은 판정 경계가 흐릿해서, 사용자가 의도적으로 켜야 보이게 했다.
  */
 const PATTERN_CATEGORIES = [
@@ -919,6 +919,7 @@ const PATTERN_CATEGORIES = [
   { key: 'volume', label: '거래량' },
   { key: 'reversal', label: '반전' },
   { key: 'continuation', label: '지속' },
+  { key: 'traps', label: '거짓 무빙' },
 ];
 
 function renderChartPanel() {

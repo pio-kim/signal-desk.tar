@@ -1240,6 +1240,52 @@ main {
   fill: #f85149;
 }
 
+/*
+ * 거짓 무빙 — 트랩은 '누가 물렸는지' 로 색을 정한다. 불트랩은 매수한 쪽이
+ * 물린 것이라 매도색(파랑)이다. 화면 다른 곳의 방향 색 규칙과 같다.
+ */
+.pattern-line.trap-bull {
+  stroke: var(--fall);
+  stroke-width: 1.8;
+}
+
+.pattern-line.trap-bear {
+  stroke: var(--rise);
+  stroke-width: 1.8;
+}
+
+/* 레벨선은 '뚫린 선' 이라는 표시라 얇고 흐리게 둔다 — 주인공은 이탈 구간이다. */
+.pattern-line.trap-level {
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.5;
+}
+
+/* 아직 되돌아오지 않은 돌파. 확정된 트랩과 눈으로 구분돼야 한다. */
+.pattern-line.pending {
+  stroke-dasharray: 4 3;
+  opacity: 0.7;
+}
+
+.pattern-dot.trap-bull {
+  fill: var(--fall);
+}
+
+.pattern-dot.trap-bear {
+  fill: var(--rise);
+}
+
+.pattern-whipsaw {
+  fill: rgba(227, 179, 65, 0.08);
+  stroke: rgba(227, 179, 65, 0.35);
+  stroke-dasharray: 3 3;
+}
+
+.pattern-dot.whipsaw {
+  r: 2.5;
+  fill: #e3b341;
+}
+
 .pattern-vp {
   fill: rgba(125, 137, 168, 0.25);
 }
@@ -1281,7 +1327,16 @@ main {
   color: #f85149;
 }
 
-.pattern-legend-item.triangle {
+.pattern-legend-item.trap-bull {
+  color: var(--fall);
+}
+
+.pattern-legend-item.trap-bear {
+  color: var(--rise);
+}
+
+.pattern-legend-item.triangle,
+.pattern-legend-item.whipsaw {
   color: #e3b341;
 }
 

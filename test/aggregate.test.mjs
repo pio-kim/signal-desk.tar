@@ -114,10 +114,10 @@ test('crossExchangeGap: 값이 빠지거나 0이면 계산하지 않는다', () 
   assert.equal(crossExchangeGap({ krwPrice: 1, usdtPrice: 70_000, usdtKrw: 0 }), null);
 });
 
-test('withExternal: 캔들 3.7 : 수급 1.0 : 심리 0.6 으로 합친다', () => {
-  // 수급 18.9%, 심리 11.3% 를 차지한다.
-  assert.equal(withExternal(0, { flow: 100, sentiment: 0 }), 18.9);
-  assert.equal(withExternal(0, { flow: 0, sentiment: 100 }), 11.3);
+test('withExternal: 캔들 4.6 : 수급 1.0 : 심리 0.6 으로 합친다', () => {
+  // 수급 16.1%, 심리 9.7% 를 차지한다.
+  assert.equal(withExternal(0, { flow: 100, sentiment: 0 }), 16.1);
+  assert.equal(withExternal(0, { flow: 0, sentiment: 100 }), 9.7);
   assert.equal(withExternal(50, { flow: 50, sentiment: 50 }), 50);
 });
 
@@ -130,5 +130,5 @@ test('withExternal: 없는 항목은 분모에서도 빠진다', () => {
 
 test('withExternal: 심리만 빠져도 수급 비중은 그대로다', () => {
   // 심리를 못 받는 상황(순수 정적 서버)에서도 캔들:수급 비율이 유지돼야 한다.
-  assert.equal(withExternal(0, { flow: 100 }), 21.3);
+  assert.equal(withExternal(0, { flow: 100 }), 17.9);
 });
