@@ -34,6 +34,15 @@ if (Test-Path $PidFile) {
     }
 }
 
+# PID 파일이 낡았어도 포트가 이미 물려 있으면 멈춘다 — 이 검사가 없으면 start.ps1 을
+# 반복 실행할 때 파이썬 서버가 같은 포트에 여러 개 쌓인다(실제로 그런 상태였다).
+$portInUse = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+if ($portInUse) {
+    $owners = ($portInUse | ForEach-Object { $_.OwningProcess } | Sort-Object -Unique) -join ", "
+    Write-Host "포트 $Port 를 이미 다른 프로세스(PID $owners)가 쓰고 있습니다. 먼저 .\stop.ps1 로 종료하세요."
+    exit 1
+}
+
 $python = Find-Python
 if (-not $python) {
     Write-Error "실행 가능한 Python 3.9+ 인터프리터를 찾지 못했습니다."

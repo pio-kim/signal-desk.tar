@@ -316,8 +316,11 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, fmt, *args):
-        # 정적 파일 요청 로그는 시끄럽고, API 오류는 예외로 드러난다.
-        if "/api/" in (args[0] if args else ""):
+        # 정적 파일 요청 로그는 시끄러우니 /api/ 경로만 남긴다. send_error 는 첫 인자로
+        # 문자열이 아닌 HTTPStatus 를 넘기므로(그대로 두면 "not iterable" TypeError 로
+        # 그 요청 스레드가 죽는다) str() 로 감싸 방어한다.
+        first = str(args[0]) if args else ""
+        if "/api/" in first:
             super().log_message(fmt, *args)
 
 
