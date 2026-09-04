@@ -284,6 +284,18 @@ class Handler(SimpleHTTPRequestHandler):
 
     protocol_version = "HTTP/1.1"
 
+    def end_headers(self):  # noqa: N802 - 표준 라이브러리 규약
+        # SimpleHTTPRequestHandler 는 정적 파일에 Last-Modified 만 붙이고
+        # Cache-Control 은 안 준다. 그러면 브라우저가 휴리스틱 캐시로 옛 파일을
+        # 재검증 없이 계속 물고, ESM 모듈 그래프에서 한 파일만 갱신되면
+        # "does not provide an export named X" 로 화면이 통째로 죽는다.
+        # 이 서버는 개발용이고 파일이 자주 바뀌므로 매 요청 재검증하게 한다
+        # (변경 없으면 304 라 비용은 거의 없다). /api/ 는 send_json 이 직접 헤더를
+        # 세팅하므로 건드리지 않는다.
+        if not self.path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def do_GET(self):  # noqa: N802 - 표준 라이브러리 규약
         parsed = urllib.parse.urlparse(self.path)
 
