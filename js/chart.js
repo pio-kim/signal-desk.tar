@@ -362,6 +362,18 @@ function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote }) {
    */
   if (categories.has('analysis')) {
     const analysis = analyzeChart(view.candles, { span: swingSpanFor(count) });
+
+    // 배지(매수/매도/진입·지지선돌파/저항선돌파)의 근거가 되는 지지/저항선을
+    // 함께 그린다 — '라인형' 토글을 안 켜도 이 근거선은 보여야 뜻이 통한다.
+    for (const level of analysis.levels) {
+      const cls = level.kind === 'support' ? 'support' : 'resistance';
+      layer.append(levelLine(level.price, yPrice, plotWidth, `pattern-line ${cls}`));
+      legend.push({
+        cls,
+        text: `${level.kind === 'support' ? '지지선' : '저항선'} ${formatPrice(level.price, quote)} · ${level.touches}회 반응`,
+      });
+    }
+
     for (const item of analysis.items) {
       layer.append(analysisBadge(item, xOf, yPrice));
       legend.push({ cls: item.group, text: item.text, number: item.number });

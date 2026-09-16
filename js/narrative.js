@@ -293,7 +293,7 @@ export {
  *   색 구분(bullish/bearish/buy/sell/enter)이다.
  */
 export function analyzeChart(candles, { span = 5 } = {}) {
-  if (!candles || candles.length < BASE_WINDOW + BASE_RECENT_OFFSET + 1) return { items: [], stance: null };
+  if (!candles || candles.length < BASE_WINDOW + BASE_RECENT_OFFSET + 1) return { items: [], stance: null, levels: [] };
 
   const n = candles.length;
   const levels = supportResistanceLevels(candles, { span });
@@ -513,5 +513,11 @@ export function analyzeChart(candles, { span = 5 } = {}) {
     .sort((a, b) => a.index - b.index)
     .map((item, i) => ({ ...item, number: i + 1 }));
 
-  return { items, stance: currentStance(candles, levels) };
+  return {
+    items,
+    stance: currentStance(candles, levels),
+    // 진입 신호(entryPoints)가 실제로 참조하는 것과 같은 상위 레벨만 낸다 —
+    // 배지 근거가 되는 선만 그려야 화면이 레벨 전부로 어지러워지지 않는다.
+    levels: levels.slice(0, ENTRY_LEVEL_LIMIT),
+  };
 }

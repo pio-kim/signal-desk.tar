@@ -237,7 +237,7 @@ test('analyzeChart: 구조 패턴이 시간순으로 번호 매겨진다', () =>
 
 test('analyzeChart: 캔들이 너무 적으면 빈 리포트를 낸다(예외를 던지지 않는다)', () => {
   const result = analyzeChart(bars([100, 101, 99, 102]), { span: 3 });
-  assert.deepEqual(result, { items: [], stance: null });
+  assert.deepEqual(result, { items: [], stance: null, levels: [] });
 });
 
 test('analyzeChart: 각 항목은 배지를 그릴 좌표(index·price·side)와 색 구분(group)을 함께 낸다', () => {
@@ -248,5 +248,16 @@ test('analyzeChart: 각 항목은 배지를 그릴 좌표(index·price·side)와
     assert.ok(['above', 'below'].includes(item.side));
     assert.ok(['bullish', 'bearish', 'buy', 'sell', 'enter'].includes(item.group));
     assert.equal(typeof item.text, 'string');
+  }
+});
+
+test('analyzeChart: 진입 신호의 근거가 되는 지지/저항선도 함께 낸다', () => {
+  const closes = [...TRIPLE_TOUCH, 103, 104, 105, 106, 107, 108, 109, 112, 108, 101, 100.3, 101, 108, 112, 115];
+  const result = analyzeChart(bars(closes), { span: 3 });
+  assert.ok(result.levels.length > 0);
+  for (const level of result.levels) {
+    assert.ok(['support', 'resistance'].includes(level.kind));
+    assert.equal(typeof level.price, 'number');
+    assert.equal(typeof level.touches, 'number');
   }
 });
