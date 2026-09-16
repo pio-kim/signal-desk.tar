@@ -336,6 +336,48 @@ export function triangle(candles, { span = 5 } = {}) {
   return { kind, support: lines.support, resistance: lines.resistance };
 }
 
+/** 쐐기형 채널의 폭이 시작 대비 이 비율 이상 좁아져야 '수렴'으로 본다 */
+const WEDGE_MIN_CONVERGENCE = 0.15;
+
+/** 쐐기형 상단/하단선을 이만큼 종가로 넘겨야 돌파로 본다(BREAK_MARGIN과 같은 값, 의미가 달라 분리) */
+const WEDGE_BREAK_MARGIN = 0.004;
+
+/**
+ * 쐐기형 — 두 추세선이 **같은 방향**으로 기울며 수렴하는 채널. 한쪽이
+ * 수평인 삼각형(triangle())과 다르고, 서로 반대로 기울어 좁아지는
+ * 대칭삼각형과도 다르다(기울기 부호가 같아야 한다).
+ *
+ * 이 함수는 채널의 기울기 방향(kind: 'rising'|'falling')과는 별개로
+ * **돌파 방향**(breakout)을 함께 낸다 — 상승 쐐기형이라도 위로 뚫으면
+ * 상승 신호, 하락 쐐기형이라도 아래로 뚫으면 하락 신호로 쓰는 화면이
+ * 있기 때문이다(narrative.js). 아직 안 뚫렸으면 breakout 은 null 이다.
+ */
+export function wedge(candles, { span = 5, margin = WEDGE_BREAK_MARGIN, minConvergence = WEDGE_MIN_CONVERGENCE } = {}) {
+  const lines = trendlines(candles, { span });
+  if (!lines.support || !lines.resistance) return null;
+
+  const { support, resistance } = lines;
+  const sameDirection = (support.slope > 0 && resistance.slope > 0) || (support.slope < 0 && resistance.slope < 0);
+  if (!sameDirection) return null; // 방향이 다르면 삼각형 쪽 판정이다(triangle()이 담당)
+
+  const count = candles.length;
+  const widthStart = resistance.priceAt(0) - support.priceAt(0);
+  const widthEnd = resistance.priceAt(count - 1) - support.priceAt(count - 1);
+  if (widthStart <= 0 || widthEnd <= 0) return null; // 두 선이 이미 교차했다 — 유효한 채널이 아니다
+  if (widthEnd > widthStart * (1 - minConvergence)) return null; // 충분히 좁아지지 않았다
+
+  const kind = support.slope > 0 ? 'rising' : 'falling';
+
+  const lastClose = candles.at(-1).close;
+  const upperNow = resistance.priceAt(count - 1);
+  const lowerNow = support.priceAt(count - 1);
+  let breakout = null;
+  if (lastClose > upperNow * (1 + margin)) breakout = 'up';
+  else if (lastClose < lowerNow * (1 - margin)) breakout = 'down';
+
+  return { kind, support, resistance, breakout };
+}
+
 // ── 거짓 무빙 ────────────────────────────────────────────────
 
 /*
@@ -376,14 +418,16 @@ const TRAP_VOLUME_PERIOD = 20;
 /** 한 번에 보여줄 트랩 개수. 오래된 것까지 늘어놓으면 차트가 읽히지 않는다 */
 const MAX_TRAPS = 3;
 
+/** 한 번에 보여줄 확정 돌파 개수(heldBreakouts). 트랩과 같은 이유로 제한한다 */
+const MAX_HELD_BREAKOUTS = 3;
+
 /**
- * 불트랩 · 베어트랩 — 지지/저항을 종가로 뚫은 뒤 되돌아온 자리.
- *
- * @returns {Array<{kind, status, level, breakIndex, breakPrice, returnIndex,
- *   bars, volumeRatio, weak}>} 최근 것이 앞에 온다. `kind` 는 되돌아왔을 때
- *   누가 물리는지를 뜻한다 — 저항 위로 뚫었다 되돌아오면 `bull-trap`.
+ * 레벨 돌파를 전부 스캔한다 — 되돌아온 것(트랩)과 되돌아오지 않고 버틴 것
+ * (확정 돌파) 을 한 루프에서 함께 찾는다. `falseBreakouts`·`heldBreakouts`
+ * 가 이 결과를 상태별로 나눠 쓴다. 스캔 로직 자체는 하나만 두어야 두 함수의
+ * '같은 돌파를 다르게 셈'하는 불일치가 생기지 않는다.
  */
-export function falseBreakouts(
+function scanLevelBreaks(
   candles,
   {
     span = 5,
@@ -441,10 +485,25 @@ export function falseBreakouts(
         }
       }
 
-      // 되돌아오지도 않았고 관찰 창도 지났으면 진짜 돌파였다 — 거짓 무빙이 아니다.
-      if (returnIndex === null && i + confirmBars <= last) continue;
-
       const ratio = ratios[i];
+      const weak = ratio !== null && ratio < WEAK_VOLUME_RATIO;
+
+      // 되돌아오지도 않았고 관찰 창도 지났으면 진짜 돌파였다 — 거짓 무빙이 아니라 '확정 돌파'다.
+      if (returnIndex === null && i + confirmBars <= last) {
+        found.push({
+          kind: brokeUp ? 'breakout-up' : 'breakout-down',
+          status: 'held',
+          level,
+          breakIndex: i,
+          breakPrice: close,
+          returnIndex: null,
+          bars: last - i,
+          volumeRatio: ratio,
+          weak,
+        });
+        continue; // 되돌아온 적이 없으니 건너뛸 구간도 없다.
+      }
+
       found.push({
         kind: brokeUp ? 'bull-trap' : 'bear-trap',
         status: returnIndex === null ? 'pending' : 'confirmed',
@@ -454,7 +513,7 @@ export function falseBreakouts(
         returnIndex,
         bars: (returnIndex ?? last) - i,
         volumeRatio: ratio,
-        weak: ratio !== null && ratio < WEAK_VOLUME_RATIO,
+        weak,
       });
 
       /*
@@ -466,17 +525,44 @@ export function falseBreakouts(
     }
   }
 
-  // 같은 레벨에서 여러 번 걸렸으면 가장 최근 것만 남긴다.
-  const latestPerLevel = new Map();
-  for (const trap of found) {
-    const key = `${trap.kind}:${trap.level.price}`;
-    const kept = latestPerLevel.get(key);
-    if (!kept || trap.breakIndex > kept.breakIndex) latestPerLevel.set(key, trap);
-  }
+  return found;
+}
 
-  return [...latestPerLevel.values()]
-    .sort((a, b) => b.breakIndex - a.breakIndex)
-    .slice(0, MAX_TRAPS);
+/** 같은 레벨·같은 종류에서 여러 번 걸렸으면 가장 최근 것만 남기고 개수를 제한한다 */
+function latestPerLevel(events, max) {
+  const map = new Map();
+  for (const event of events) {
+    const key = `${event.kind}:${event.level.price}`;
+    const kept = map.get(key);
+    if (!kept || event.breakIndex > kept.breakIndex) map.set(key, event);
+  }
+  return [...map.values()].sort((a, b) => b.breakIndex - a.breakIndex).slice(0, max);
+}
+
+/**
+ * 불트랩 · 베어트랩 — 지지/저항을 종가로 뚫은 뒤 되돌아온 자리.
+ *
+ * @returns {Array<{kind, status, level, breakIndex, breakPrice, returnIndex,
+ *   bars, volumeRatio, weak}>} 최근 것이 앞에 온다. `kind` 는 되돌아왔을 때
+ *   누가 물리는지를 뜻한다 — 저항 위로 뚫었다 되돌아오면 `bull-trap`.
+ */
+export function falseBreakouts(candles, options = {}) {
+  const events = scanLevelBreaks(candles, options).filter((event) => event.status !== 'held');
+  return latestPerLevel(events, MAX_TRAPS);
+}
+
+/**
+ * 확정 돌파 — 지지/저항을 종가로 뚫은 뒤 관찰 창(confirmBars)이 지나도록
+ * 되돌아오지 않은 자리. `falseBreakouts` 와 같은 스캔에서 나오는 반대쪽
+ * 결과다 — 트랩이 '실패한 돌파'라면 이쪽은 '버틴 돌파'.
+ *
+ * @returns {Array<{kind, status, level, breakIndex, breakPrice, returnIndex,
+ *   bars, volumeRatio, weak}>} `kind` 는 뚫은 방향 — 저항을 위로 뚫고 버티면
+ *   `breakout-up`, 지지를 아래로 깨고 버티면 `breakout-down`.
+ */
+export function heldBreakouts(candles, options = {}) {
+  const events = scanLevelBreaks(candles, options).filter((event) => event.status === 'held');
+  return latestPerLevel(events, MAX_HELD_BREAKOUTS);
 }
 
 /** 휩쏘로 볼 관찰 창 */
@@ -546,6 +632,7 @@ export function detectPatterns(candles, options = {}) {
     },
     continuation: {
       triangle: triangle(candles, options),
+      wedge: wedge(candles, options),
     },
     traps: {
       falseBreakouts: falseBreakouts(candles, options),

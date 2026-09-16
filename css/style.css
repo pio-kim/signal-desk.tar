@@ -1349,6 +1349,82 @@ main {
   color: #56d4dd;
 }
 
+/* ── 패턴 분석(narrative.js) — 번호 배지 + 서술형 리포트 ──── */
+
+.pattern-badge circle {
+  r: 9;
+  stroke: #0d0f14;
+  stroke-width: 1.2;
+}
+
+.pattern-badge text {
+  font-size: 10px;
+  font-weight: 700;
+  fill: #0d0f14;
+}
+
+.pattern-badge.bullish circle,
+.pattern-badge.buy circle {
+  fill: #33c76a;
+}
+
+.pattern-badge.bearish circle,
+.pattern-badge.sell circle {
+  fill: #f85149;
+}
+
+.pattern-badge.enter circle {
+  fill: #e3b341;
+}
+
+.pattern-legend-item.buy {
+  color: #33c76a;
+}
+
+.pattern-legend-item.sell {
+  color: #f85149;
+}
+
+.pattern-legend-item.enter,
+.pattern-legend-item.stance-buy,
+.pattern-legend-item.stance-sell {
+  color: #e3b341;
+}
+
+.pattern-legend-item.stance-buy,
+.pattern-legend-item.stance-sell {
+  background: rgba(227, 179, 65, 0.12);
+  font-weight: 700;
+}
+
+.pattern-legend-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-right: 5px;
+  border-radius: 50%;
+  color: #0d0f14;
+  font-size: 9px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.pattern-legend-num.bullish,
+.pattern-legend-num.buy {
+  background: #33c76a;
+}
+
+.pattern-legend-num.bearish,
+.pattern-legend-num.sell {
+  background: #f85149;
+}
+
+.pattern-legend-num.enter {
+  background: #e3b341;
+}
+
 .crosshair {
   visibility: hidden;
 }

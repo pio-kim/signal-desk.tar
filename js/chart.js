@@ -7,6 +7,7 @@
 
 import { bollinger, macd, rsi, sma, stochastic } from './indicators.js';
 import { detectPatterns } from './patterns.js';
+import { analyzeChart } from './narrative.js';
 import { CHART_BARS, PERIODS } from './config.js';
 import {
   axisPriceFormatter,
@@ -136,6 +137,20 @@ function segment(a, b, xOf, yOf, cls) {
 
 function dot(point, xOf, yOf, cls) {
   return el('circle', { cx: xOf(point.index).toFixed(1), cy: yOf(point.price).toFixed(1), r: 3.5, class: cls });
+}
+
+/** 패턴 분석 리포트의 번호 배지 — 극점 위/아래(side)로 살짝 띄워 캔들과 겹치지 않게 한다 */
+const ANALYSIS_BADGE_OFFSET = 15;
+
+function analysisBadge(item, xOf, yOf) {
+  const x = xOf(item.index);
+  const y = yOf(item.price) + (item.side === 'above' ? -ANALYSIS_BADGE_OFFSET : ANALYSIS_BADGE_OFFSET);
+  const g = el('g', { class: `pattern-badge ${item.group}`, transform: `translate(${x.toFixed(1)} ${y.toFixed(1)})` });
+  g.append(el('circle', { r: 9 }));
+  const label = el('text', { 'text-anchor': 'middle', dy: 3.5 });
+  label.textContent = String(item.number);
+  g.append(label);
+  return g;
 }
 
 function trendSegment(line, xOf, yOf, count, cls) {
@@ -339,6 +354,27 @@ function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote }) {
     }
   }
 
+  /*
+   * 패턴 분석 — chart/ 참고 이미지처럼 번호 배지 + 서술형 리포트를 만든다.
+   * 다른 카테고리는 계산과 그리기가 한 덩어리지만, 여기는 narrative.js 가
+   * 번호까지 다 매겨서 내주므로 좌표 변환만 하면 된다. 다른 레이어 위에
+   * 보이도록 맨 마지막에 그린다.
+   */
+  if (categories.has('analysis')) {
+    const analysis = analyzeChart(view.candles, { span: swingSpanFor(count) });
+    for (const item of analysis.items) {
+      layer.append(analysisBadge(item, xOf, yPrice));
+      legend.push({ cls: item.group, text: item.text, number: item.number });
+    }
+    if (analysis.stance) {
+      const s = analysis.stance;
+      legend.push({
+        cls: s.stance === 'buy' ? 'stance-buy' : 'stance-sell',
+        text: `지금 ${formatPrice(s.price, quote)} · ${s.stance === 'buy' ? '지지선' : '저항선'} ${formatPrice(s.level.price, quote)} 근접 · ${s.stance === 'buy' ? '매수' : '매도'} 관점`,
+      });
+    }
+  }
+
   return { node: layer, legend };
 }
 
@@ -352,7 +388,13 @@ function renderPatternLegend(container, legend) {
   for (const item of legend) {
     const li = document.createElement('li');
     li.className = `pattern-legend-item ${item.cls}`;
-    li.textContent = item.text;
+    if (item.number) {
+      const badge = document.createElement('span');
+      badge.className = `pattern-legend-num ${item.cls}`;
+      badge.textContent = String(item.number);
+      li.append(badge);
+    }
+    li.append(document.createTextNode(item.text));
     list.append(li);
   }
   container.append(list);

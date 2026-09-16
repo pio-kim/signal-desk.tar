@@ -911,8 +911,10 @@ const CHART_PERIODS = [
 ];
 
 /**
- * 참고용 차트선 다섯 갈래. 기본은 전부 꺼져 있다 — patterns.js 상단 주석대로
+ * 참고용 차트선 여섯 갈래. 기본은 전부 꺼져 있다 — patterns.js 상단 주석대로
  * 반전/지속 패턴은 판정 경계가 흐릿해서, 사용자가 의도적으로 켜야 보이게 했다.
+ * '패턴 분석'(narrative.js)은 그 판정들을 chart/ 참고 이미지 스타일의 번호
+ * 매긴 서술형 리포트로 묶어 보여준다.
  */
 const PATTERN_CATEGORIES = [
   { key: 'lines', label: '라인형' },
@@ -920,6 +922,7 @@ const PATTERN_CATEGORIES = [
   { key: 'reversal', label: '반전' },
   { key: 'continuation', label: '지속' },
   { key: 'traps', label: '거짓 무빙' },
+  { key: 'analysis', label: '패턴 분석' },
 ];
 
 function renderChartPanel() {

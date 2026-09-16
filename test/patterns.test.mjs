@@ -12,7 +12,9 @@ import {
   doubleExtremes,
   headAndShoulders,
   triangle,
+  wedge,
   falseBreakouts,
+  heldBreakouts,
   whipsaw,
 } from '../js/patterns.js';
 
@@ -293,6 +295,62 @@ test('triangle: 스윙이 부족하면 null', () => {
   assert.equal(triangle(candles, { span: 2 }), null);
 });
 
+/**
+ * 쐐기형 픽스처 — 중심선이 기울고 폭(spread)이 시간이 지날수록 좁아지는
+ * 채널을 만든 뒤, dips/pokes 로 지정한 인덱스에서만 살짝 더 깊게/높게
+ * 찔러 그 자리를 스윙 저점/고점으로 만든다. 중심선이 기울어 있으므로
+ * 두 스윙은 자연히 '오르는 저점·오르는 고점'(또는 그 반대) 관계가 된다.
+ */
+function wedgeCandles({ n = 30, centerStart = 200, centerSlope = 3, spreadStart = 60, spreadEnd = 20, dips, pokes, tailClose }) {
+  const candles = [];
+  for (let i = 0; i < n; i += 1) {
+    const center = centerStart + centerSlope * i;
+    const spread = spreadStart + ((spreadEnd - spreadStart) * i) / (n - 1);
+    let low = center - spread * 0.5;
+    let high = center + spread * 0.5;
+    if (dips.includes(i)) low = center - spread * 1.1;
+    if (pokes.includes(i)) high = center + spread * 1.1;
+    candles.push({ open: center, high, low, close: center, volume: 100 });
+  }
+  if (tailClose !== undefined) {
+    const lastIndex = n - 1;
+    const last = candles[lastIndex];
+    const half = (last.high - last.low) / 2 || 1;
+    candles[lastIndex] = { ...last, close: tailClose, high: Math.max(last.high, tailClose + half * 0.1), low: Math.min(last.low, tailClose - half * 0.1) };
+  }
+  return candles;
+}
+
+test('wedge: 중심선이 오르고 폭이 좁아지면 상승 쐐기형(돌파 전에는 방향 미정)', () => {
+  const candles = wedgeCandles({ dips: [3, 15], pokes: [6, 20] });
+  const result = wedge(candles, { span: 2 });
+  assert.equal(result.kind, 'rising');
+  assert.equal(result.breakout, null);
+});
+
+test('wedge: 상승 쐐기형이라도 위로 종가 이탈하면 상승 돌파', () => {
+  const base = wedgeCandles({ dips: [3, 15], pokes: [6, 20] });
+  const upper = base.at(-1).high;
+  const candles = wedgeCandles({ dips: [3, 15], pokes: [6, 20], tailClose: upper * 1.2 });
+  assert.equal(wedge(candles, { span: 2 }).breakout, 'up');
+});
+
+test('wedge: 상승 쐐기형이 아래로 종가 이탈하면 하락 돌파', () => {
+  const base = wedgeCandles({ dips: [3, 15], pokes: [6, 20] });
+  const lower = base.at(-1).low;
+  const candles = wedgeCandles({ dips: [3, 15], pokes: [6, 20], tailClose: lower * 0.8 });
+  assert.equal(wedge(candles, { span: 2 }).breakout, 'down');
+});
+
+test('wedge: 두 추세선이 서로 다른 방향으로 기울면(대칭삼각형 모양) null', () => {
+  const highs = [150, 160, 170, 200, 180, 170, 180, 190, 180, 170, 160];
+  const lows = [100, 90, 80, 90, 100, 105, 100, 95, 90, 95, 100];
+  const candles = hl(highs, lows);
+
+  assert.equal(triangle(candles, { span: 2 }).kind, 'symmetric');
+  assert.equal(wedge(candles, { span: 2 }), null);
+});
+
 // ── 거짓 무빙 ────────────────────────────────────────────────
 
 /**
@@ -364,6 +422,36 @@ test('falseBreakouts: 관찰 창을 넘겨 버틴 돌파는 거짓이 아니다'
   // 돌파 후 6봉(확정 창 5봉 초과) 동안 레벨 위에 머문다.
   const closes = [...TRIPLE_TOUCH, 103, 104, 105, 106, 107, 108, 109];
   assert.deepEqual(falseBreakouts(bars(closes), { span: 3 }), []);
+});
+
+test('heldBreakouts: falseBreakouts 가 거짓이 아니라고 본 바로 그 돌파를 잡는다', () => {
+  const closes = [...TRIPLE_TOUCH, 103, 104, 105, 106, 107, 108, 109];
+  const [held] = heldBreakouts(bars(closes), { span: 3 });
+  assert.ok(held, '확정 돌파를 찾아야 한다');
+  assert.equal(held.kind, 'breakout-up');
+  near(held.level.price, 100.5, 1e-6, 'level.price'); // bars() 는 high = close + 0.5
+  assert.equal(held.breakIndex, 29);
+});
+
+test('heldBreakouts: 지지를 깨고 버티면 breakout-down', () => {
+  // 저항 100 대신 지지 90 을 세 번 찍은 뒤 아래로 뚫고 버틴다.
+  const closes = [...TRIPLE_TOUCH.map((v) => 190 - v), 87, 86, 85, 84, 83, 82, 81];
+  const [held] = heldBreakouts(bars(closes), { span: 3 });
+  assert.ok(held, '확정 돌파를 찾아야 한다');
+  assert.equal(held.kind, 'breakout-down');
+  near(held.level.price, 89.5, 1e-6, 'level.price'); // bars() 는 low = close - 0.5
+});
+
+test('heldBreakouts: 되돌아온 트랩은 확정 돌파가 아니다', () => {
+  // falseBreakouts 의 '불트랩으로 확정한다' 픽스처와 같은 데이터 — 저항을
+  // 뚫었다가 바로 되돌아오므로 heldBreakouts 에는 잡히지 않아야 한다.
+  const closes = [...TRIPLE_TOUCH, 103, 104, 97, 95, 93];
+  assert.deepEqual(heldBreakouts(bars(closes), { span: 3 }), []);
+});
+
+test('heldBreakouts: 아직 관찰 창이 안 끝난 미확정 돌파는 잡지 않는다', () => {
+  const closes = [...TRIPLE_TOUCH, 103, 104];
+  assert.deepEqual(heldBreakouts(bars(closes), { span: 3 }), []);
 });
 
 test('falseBreakouts: 돌파봉 거래량이 평균 미만이면 실리지 않은 돌파로 본다', () => {
