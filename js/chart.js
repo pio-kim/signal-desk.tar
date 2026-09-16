@@ -180,6 +180,17 @@ function trendSegment(line, xOf, yOf, count, cls) {
   });
 }
 
+/** trendSegment() 과 같지만 차트 전체가 아니라 [from, to] 구간에만 선을 그린다. */
+function boundedTrendSegment(line, xOf, yOf, from, to, cls) {
+  return el('line', {
+    x1: xOf(from).toFixed(1),
+    y1: yOf(line.priceAt(from)).toFixed(1),
+    x2: xOf(to).toFixed(1),
+    y2: yOf(line.priceAt(to)).toFixed(1),
+    class: cls,
+  });
+}
+
 /**
  * 패턴 오버레이 — 순수 계산(patterns.js)과 좌표 변환(xOf/yPrice)을 잇는다.
  * 카테고리별로 켜고 끌 수 있게 legend 항목도 함께 낸다. 숫자만 그리지 않고
@@ -402,8 +413,12 @@ function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote, analysi
         }
       }
       if (item.lines) {
+        // 참고 이미지의 삼각형·쐐기형 아이콘처럼 패턴이 실제로 걸친 구간에만
+        // 선을 그린다 — trendSegment() 처럼 차트 전체 폭으로 늘이면 국소적인
+        // 모양이 다 뭉개진다.
+        const fromIndex = Math.min(...item.lines.map((line) => line.from.index));
         for (const line of item.lines) {
-          layer.append(trendSegment(line, xOf, yPrice, count, `pattern-line ${item.group}`));
+          layer.append(boundedTrendSegment(line, xOf, yPrice, fromIndex, item.index, `pattern-line ${item.group}`));
         }
       }
       if (item.direction) {
