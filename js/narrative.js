@@ -72,6 +72,8 @@ function baseRange(candles, side) {
     resolved,
     rangeHigh,
     rangeLow,
+    boxFrom: boxEnd - BASE_WINDOW,
+    boxTo: boxEnd - 1,
     anchorIndex: resolved ? lastIndex : boxEnd - 1,
     anchorPrice: resolved ? lastClose : side === 'bottom' ? rangeLow : rangeHigh,
   };
@@ -130,7 +132,7 @@ function swingReversal(candles, direction, span) {
       : Math.max(...majorWindow.map((c) => c.high));
   const major = direction === 'bullish' ? extreme.price <= majorValue * 1.001 : extreme.price >= majorValue * 0.999;
 
-  return { direction, extreme, bounce, sharp, major };
+  return { direction, extreme, priorOpposite, bounce, sharp, major };
 }
 
 // ── 장기 바닥 확인 ───────────────────────────────────────────
@@ -202,11 +204,15 @@ function trendStage(candles, span) {
   if (!present(lastMa20) || !present(lastMa60)) return null;
   const lastClose = closes[n - 1];
 
+  // 차트에 그릴 지그재그 — 저점·고점 스윙 4개를 시간순으로 잇는다(고점-저점
+  // 번갈아 온다는 보장은 없어 index 로 다시 정렬한다).
+  const points = [h1, h2, l1, l2].sort((a, b) => a.index - b.index);
+
   if (h2.price > h1.price && l2.price > l1.price && lastClose > lastMa20 && lastMa20 > lastMa60) {
-    return { direction: 'up', anchor: l2 };
+    return { direction: 'up', anchor: l2, points };
   }
   if (h2.price < h1.price && l2.price < l1.price && lastClose < lastMa20 && lastMa20 < lastMa60) {
-    return { direction: 'down', anchor: h2 };
+    return { direction: 'down', anchor: h2, points };
   }
   return null;
 }
@@ -296,11 +302,16 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
   if (!candles || candles.length < BASE_WINDOW + BASE_RECENT_OFFSET + 1) return { items: [], stance: null, levels: [] };
 
   const n = candles.length;
+  const lastClose = candles[n - 1].close;
   const levels = supportResistanceLevels(candles, { span });
   const structure = [];
 
   const bottomBase = baseRange(candles, 'bottom');
   if (bottomBase) {
+    const flat = [
+      { index: bottomBase.boxFrom, price: bottomBase.rangeLow },
+      { index: bottomBase.boxTo, price: bottomBase.rangeLow },
+    ];
     structure.push(
       bottomBase.resolved === 'up'
         ? {
@@ -310,6 +321,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
             index: bottomBase.anchorIndex,
             price: bottomBase.anchorPrice,
             side: 'below',
+            path: [...flat, { index: bottomBase.anchorIndex, price: bottomBase.anchorPrice }],
+            direction: 'up',
             text: `바닥 다지기 후 상승 · ${formatPrice(bottomBase.rangeLow, quote)}~${formatPrice(bottomBase.rangeHigh, quote)} 박스권을 위로 이탈`,
           }
         : {
@@ -319,6 +332,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
             index: bottomBase.anchorIndex,
             price: bottomBase.anchorPrice,
             side: 'below',
+            path: flat,
+            direction: null, // 아직 돌파 전 — 방향을 미리 그리지 않는다
             text: `바닥 다지기 · ${formatPrice(bottomBase.rangeLow, quote)}~${formatPrice(bottomBase.rangeHigh, quote)} 박스권에서 저점권 횡보 중`,
           },
     );
@@ -326,6 +341,10 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
 
   const topBase = baseRange(candles, 'top');
   if (topBase) {
+    const flat = [
+      { index: topBase.boxFrom, price: topBase.rangeHigh },
+      { index: topBase.boxTo, price: topBase.rangeHigh },
+    ];
     structure.push(
       topBase.resolved === 'down'
         ? {
@@ -335,6 +354,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
             index: topBase.anchorIndex,
             price: topBase.anchorPrice,
             side: 'above',
+            path: [...flat, { index: topBase.anchorIndex, price: topBase.anchorPrice }],
+            direction: 'down',
             text: `횡보 후 하락 · ${formatPrice(topBase.rangeLow, quote)}~${formatPrice(topBase.rangeHigh, quote)} 박스권을 아래로 이탈`,
           }
         : {
@@ -344,6 +365,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
             index: topBase.anchorIndex,
             price: topBase.anchorPrice,
             side: 'above',
+            path: flat,
+            direction: null,
             text: `고점 형성 · ${formatPrice(topBase.rangeLow, quote)}~${formatPrice(topBase.rangeHigh, quote)} 박스권에서 고점권 횡보 중`,
           },
     );
@@ -358,6 +381,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
       index: bull.extreme.index,
       price: bull.extreme.price,
       side: 'below',
+      path: [bull.priorOpposite, bull.extreme, { index: n - 1, price: lastClose }],
+      direction: 'up',
       text: `하락 후 반등 · ${formatPrice(bull.extreme.price, quote)} 저점 확인 후 반등 진행 중`,
     });
   }
@@ -373,6 +398,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
       index: bear.extreme.index,
       price: bear.extreme.price,
       side: 'above',
+      path: [bear.priorOpposite, bear.extreme, { index: n - 1, price: lastClose }],
+      direction: 'down',
       text: `${label} · ${formatPrice(bear.extreme.price, quote)} 고점 확인 후 하락 진행 중`,
     });
   }
@@ -387,6 +414,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
       index: n - 1,
       price: candles[n - 1].close,
       side: bullishTri ? 'below' : 'above',
+      lines: [tri.support, tri.resistance],
+      direction: bullishTri ? 'up' : 'down',
       text: `${bullishTri ? '상승' : '하락'} 삼각형 수렴 중`,
     });
   }
@@ -401,6 +430,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
       index: n - 1,
       price: candles[n - 1].close,
       side: bullishW ? 'below' : 'above',
+      lines: [w.support, w.resistance],
+      direction: bullishW ? 'up' : 'down',
       text: `${bullishW ? '상승' : '하락'} 쐐기형 · ${w.kind === 'rising' ? '상승' : '하락'} 채널을 ${bullishW ? '위로' : '아래로'} 돌파`,
     });
   }
@@ -414,6 +445,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
       index: ltb.index,
       price: ltb.price,
       side: 'below',
+      path: [{ index: ltb.index, price: ltb.price }, { index: n - 1, price: lastClose }],
+      direction: 'up',
       text: `장기 바닥 확인 · ${formatPrice(ltb.price, quote)} 저점이 ${ltb.barsSince}봉째 유지 중`,
     });
   }
@@ -427,6 +460,7 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
       index: trs.index,
       price: trs.price,
       side: 'below',
+      direction: 'up', // 골든크로스 시점 하나뿐이라 잇는 선 없이 화살표만
       text: `추세 전환 신호 · MA${PERIODS.maShort}이 MA${PERIODS.maLong}을 상향 돌파(골든크로스)`,
     });
   }
@@ -441,6 +475,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
       index: stage.anchor.index,
       price: stage.anchor.price,
       side: up ? 'below' : 'above',
+      path: [...stage.points, { index: n - 1, price: lastClose }],
+      direction: up ? 'up' : 'down',
       text: `${up ? '상승' : '하락'} 추세 · 고점과 저점이 연속으로 ${up ? '높아지고' : '낮아지고'} 있음`,
     });
   }
@@ -455,6 +491,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
       index: peak.index,
       price: peak.price,
       side: 'above',
+      path: [topDouble.points[0], topDouble.neckline, peak, { index: n - 1, price: lastClose }],
+      direction: 'down',
       text: `하락 추세 전환 · 쌍봉 넥라인 ${formatPrice(topDouble.neckline.price, quote)} 하향 돌파`,
     });
   }
@@ -469,6 +507,8 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
     if (claimed) continue;
 
     const bullishEvent = event.kind === 'breakout-up';
+    // 돌파 직전 그 레벨을 마지막으로 짚은 터치 — 그 자리에서 돌파봉까지 잇는다.
+    const priorTouch = [...event.level.indices].filter((index) => index < event.breakIndex).sort((a, b) => b - a)[0];
     structure.push({
       code: bullishEvent ? 'support-breakout' : 'resistance-breakout',
       label: bullishEvent ? '지지선 돌파' : '저항선 돌파',
@@ -476,6 +516,14 @@ export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
       index: event.breakIndex,
       price: event.breakPrice,
       side: bullishEvent ? 'below' : 'above',
+      path:
+        priorTouch !== undefined
+          ? [
+              { index: priorTouch, price: event.level.price },
+              { index: event.breakIndex, price: event.breakPrice },
+            ]
+          : undefined,
+      direction: bullishEvent ? 'up' : 'down',
       text: bullishEvent
         ? `지지선 돌파 · 저항선 ${formatPrice(event.level.price, quote)}을 돌파해 지지선으로 전환, ${event.bars}봉째 유지 중`
         : `저항선 돌파 · 지지선 ${formatPrice(event.level.price, quote)}을 이탈해 저항선으로 전환, ${event.bars}봉째 유지 중`,

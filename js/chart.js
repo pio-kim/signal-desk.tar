@@ -153,6 +153,23 @@ function analysisBadge(item, xOf, yOf) {
   return g;
 }
 
+/** 패턴 화살표 크기 — 폭(가로 절반)·길이(뒤쪽으로 flare 되는 거리) */
+const ARROW_WIDTH = 5;
+const ARROW_LENGTH = 9;
+
+/**
+ * 상승·하락 방향 화살표. 뾰족한 끝이 실제 데이터 지점(point)에 정확히
+ * 물리고, 밑변은 진행 방향의 반대쪽으로 벌어진다 — 선 끝에 붙는 화살표
+ * 머리 모양이라 어느 지점을 근거로 하는지 항상 명확하다.
+ */
+function arrowHead(point, xOf, yOf, direction, cls) {
+  const x = xOf(point.index);
+  const y = yOf(point.price);
+  const backY = direction === 'up' ? y + ARROW_LENGTH : y - ARROW_LENGTH;
+  const pts = `${x.toFixed(1)},${y.toFixed(1)} ${(x - ARROW_WIDTH).toFixed(1)},${backY.toFixed(1)} ${(x + ARROW_WIDTH).toFixed(1)},${backY.toFixed(1)}`;
+  return el('polygon', { points: pts, class: `pattern-arrow ${cls}` });
+}
+
 function trendSegment(line, xOf, yOf, count, cls) {
   return el('line', {
     x1: xOf(0).toFixed(1),
@@ -376,6 +393,24 @@ function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote, analysi
     }
 
     for (const item of analysis.items) {
+      // 패턴의 실제 모양 — chart/ 참고 이미지처럼 근거 지점을 선으로 잇고
+      // (path) / 추세선 두 개를 늘여 그리고(lines), 끝에 상승·하락 방향
+      // 화살표를 얹는다. 배지보다 먼저 그려야 배지가 그 위에 올라온다.
+      if (item.path) {
+        for (let i = 1; i < item.path.length; i += 1) {
+          layer.append(segment(item.path[i - 1], item.path[i], xOf, yPrice, `pattern-line ${item.group}`));
+        }
+      }
+      if (item.lines) {
+        for (const line of item.lines) {
+          layer.append(trendSegment(line, xOf, yPrice, count, `pattern-line ${item.group}`));
+        }
+      }
+      if (item.direction) {
+        const tip = item.path?.at(-1) ?? { index: item.index, price: item.price };
+        layer.append(arrowHead(tip, xOf, yPrice, item.direction, item.group));
+      }
+
       layer.append(analysisBadge(item, xOf, yPrice));
       legend.push({ cls: item.group, text: item.text, number: item.number });
     }

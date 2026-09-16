@@ -316,3 +316,56 @@ test('tradingPlan: 문구는 예측이 아니라 참고 가격이라는 태도�
   assert.ok(plan.text.includes('매수 관점'));
   assert.equal(typeof plan.text, 'string');
 });
+
+// ── 패턴 모양(path/lines/direction) — 차트에 실제로 선·화살표를 그릴 근거 ──
+
+test('analyzeChart: 바닥 다지기(미돌파)는 박스 바닥을 잇는 평평한 2점 선이고 방향이 없다', () => {
+  const result = analyzeChart(bars(bottomBoxCloses(false)), { span: 3 });
+  const item = result.items.find((i) => i.code === 'base-bottom');
+  assert.ok(item);
+  assert.equal(item.path.length, 2);
+  assert.equal(item.path[0].price, item.path[1].price, '박스 바닥은 평평해야 한다');
+  assert.ok(item.path[0].index < item.path[1].index);
+  assert.equal(item.direction, null, '아직 돌파 전이라 방향을 미리 그리지 않는다');
+});
+
+test('analyzeChart: 바닥 다지기 후 상승은 박스 바닥 2점 + 돌파 지점까지 3점, 방향은 up', () => {
+  const result = analyzeChart(bars(bottomBoxCloses(true)), { span: 3 });
+  const item = result.items.find((i) => i.code === 'base-up');
+  assert.ok(item);
+  assert.equal(item.path.length, 3);
+  assert.equal(item.path.at(-1).index, item.index);
+  assert.equal(item.path.at(-1).price, item.price);
+  assert.equal(item.direction, 'up');
+});
+
+test('analyzeChart: 고점 형성/횡보 후 하락도 같은 모양으로 대칭이고 방향은 down', () => {
+  const pending = analyzeChart(bars(topBoxCloses(false)), { span: 3 }).items.find((i) => i.code === 'top-formation');
+  assert.equal(pending.path.length, 2);
+  assert.equal(pending.direction, null);
+
+  const resolved = analyzeChart(bars(topBoxCloses(true)), { span: 3 }).items.find((i) => i.code === 'top-down');
+  assert.equal(resolved.path.length, 3);
+  assert.equal(resolved.direction, 'down');
+});
+
+test('analyzeChart: 하락 후 반등은 [이전 고점 → 저점 → 현재가] 3점을 잇고 위쪽 화살표', () => {
+  const result = analyzeChart(bars(declineReboundCloses()), { span: 3 });
+  const item = result.items.find((i) => i.code === 'decline-rebound');
+  assert.ok(item);
+  assert.equal(item.path.length, 3);
+  assert.equal(item.path[1].index, item.index, '가운데 점이 저점(극점) 자리여야 한다');
+  assert.ok(item.path[0].index < item.path[1].index && item.path[1].index < item.path[2].index);
+  assert.equal(item.direction, 'up');
+});
+
+test('analyzeChart: 삼각형은 두 추세선(lines)을 낸다 — 차트가 확장해 그릴 수 있게 priceAt 을 가진 선 객체', () => {
+  const cycle = [90, 92, 95, 98, 100, 98, 95, 92];
+  const closes = [...cycle, ...cycle, ...cycle, 95, 96, 97, 98, 99, 99.5, 100, 100.2];
+  const result = analyzeChart(bars(closes), { span: 3 });
+  const item = result.items.find((i) => i.code === 'triangle-up' || i.code === 'triangle-down');
+  assert.ok(item, '삼각형 항목을 찾아야 한다');
+  assert.equal(item.lines.length, 2);
+  for (const line of item.lines) assert.equal(typeof line.priceAt, 'function');
+  assert.ok(['up', 'down'].includes(item.direction));
+});

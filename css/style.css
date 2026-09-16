@@ -1437,6 +1437,14 @@ main {
   fill: #e3b341;
 }
 
+.pattern-arrow.bullish {
+  fill: #33c76a;
+}
+
+.pattern-arrow.bearish {
+  fill: #f85149;
+}
+
 .pattern-legend-item.buy {
   color: #33c76a;
 }
