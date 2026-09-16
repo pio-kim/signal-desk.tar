@@ -7,7 +7,7 @@
 
 import { bollinger, macd, rsi, sma, stochastic } from './indicators.js';
 import { detectPatterns } from './patterns.js';
-import { analyzeChart } from './narrative.js';
+import { analyzeChart, tradingPlan } from './narrative.js';
 import { CHART_BARS, PERIODS } from './config.js';
 import {
   axisPriceFormatter,
@@ -170,7 +170,7 @@ function trendSegment(line, xOf, yOf, count, cls) {
  * 지표와 달리 '봉우리가 비슷한 높이'같은 허용 오차 안에서 결정되기
  * 때문이다 — patterns.js 상단 주석 참고.
  */
-function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote }) {
+function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote, analysis }) {
   const layer = el('g', { class: 'pattern-layer' });
   const legend = [];
   if (!categories || !categories.size) return { node: layer, legend };
@@ -361,7 +361,8 @@ function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote }) {
    * 보이도록 맨 마지막에 그린다.
    */
   if (categories.has('analysis')) {
-    const analysis = analyzeChart(view.candles, { span: swingSpanFor(count) });
+    // analysis 는 renderChart() 가 이미 계산해 넘겨준다 — 항상 보이는 매매
+    // 전략 카드와 같은 결과를 공유해 두 번 계산하지 않는다.
 
     // 배지(매수/매도/진입·지지선돌파/저항선돌파)의 근거가 되는 지지/저항선을
     // 함께 그린다 — '라인형' 토글을 안 켜도 이 근거선은 보여야 뜻이 통한다.
@@ -388,6 +389,51 @@ function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote }) {
   }
 
   return { node: layer, legend };
+}
+
+/**
+ * 매매 전략 요약 카드 — 참고용 차트선 토글과 무관하게 항상 보인다.
+ * '이 지표는 예측이 아니라 지금 보이는 지지/저항선 기준의 참고 가격'
+ * 이라는 태도를 유지하려고 마지막 줄에 고지를 고정으로 둔다.
+ */
+function renderTradingPlan(container, plan, quote) {
+  const existing = container.querySelector('.trading-plan');
+  if (existing) existing.remove();
+  if (plan.verdict === 'unknown') return;
+
+  const card = document.createElement('div');
+  card.className = `trading-plan trading-plan-${plan.verdict}`;
+
+  const headline = document.createElement('p');
+  headline.className = 'trading-plan-headline';
+  headline.textContent = plan.text;
+  card.append(headline);
+
+  if (plan.buy || plan.sell || plan.stop) {
+    const rows = document.createElement('dl');
+    rows.className = 'trading-plan-rows';
+    const addRow = (term, level) => {
+      const dt = document.createElement('dt');
+      dt.textContent = term;
+      const dd = document.createElement('dd');
+      dd.textContent =
+        level.touches !== null && level.touches !== undefined
+          ? `${formatPrice(level.price, quote)} · ${level.touches}회 반응`
+          : formatPrice(level.price, quote);
+      rows.append(dt, dd);
+    };
+    if (plan.buy) addRow('매수 참고가', plan.buy);
+    if (plan.sell) addRow('매도 참고가', plan.sell);
+    if (plan.stop) addRow('손절 참고가', plan.stop);
+    card.append(rows);
+  }
+
+  const note = document.createElement('p');
+  note.className = 'trading-plan-note';
+  note.textContent = '기술적 지표 기반 참고 가격일 뿐 투자 자문이 아니며, 미래 가격을 예측하지 않습니다.';
+  card.append(note);
+
+  container.append(card);
 }
 
 function renderPatternLegend(container, legend) {
@@ -513,8 +559,15 @@ export function renderChart(
   });
   svg.append(candleLayer);
 
+  // ── 매매 전략 요약 — 항상 계산한다(토글과 무관). '패턴 분석' 배지가
+  // 쓰는 것과 같은 결과(analysis.items)를 공유해 구조 패턴을 두 번
+  // 계산하지 않는다.
+  const analysisSpan = swingSpanFor(count);
+  const analysis = analyzeChart(view.candles, { span: analysisSpan, quote });
+  const plan = tradingPlan(view.candles, { span: analysisSpan, quote, items: analysis.items });
+
   // ── 참고용 차트선 (지지/저항·추세선·패턴 등, 켠 카테고리만) ──
-  const { node: patternNode, legend } = patternLayer(view, patternCategories, { xOf, yPrice, plotWidth, quote });
+  const { node: patternNode, legend } = patternLayer(view, patternCategories, { xOf, yPrice, plotWidth, quote, analysis });
   svg.append(patternNode);
 
   // ── 거래량 막대 ───────────────────────────────────────────
@@ -567,6 +620,7 @@ export function renderChart(
   svg.append(crosshair);
 
   container.append(svg);
+  renderTradingPlan(container, plan, quote);
   renderPatternLegend(container, legend);
 
   const tooltip = document.createElement('div');

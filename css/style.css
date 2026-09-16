@@ -1087,6 +1087,66 @@ main {
   color: var(--muted);
 }
 
+/* ── 매매 전략 요약 카드(narrative.js tradingPlan) ─────────── */
+
+.trading-plan {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.trading-plan-buy {
+  border-color: rgba(51, 199, 106, 0.4);
+  background: rgba(51, 199, 106, 0.08);
+}
+
+.trading-plan-sell {
+  border-color: rgba(248, 81, 73, 0.4);
+  background: rgba(248, 81, 73, 0.08);
+}
+
+.trading-plan-headline {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.trading-plan-buy .trading-plan-headline {
+  color: #33c76a;
+}
+
+.trading-plan-sell .trading-plan-headline {
+  color: #f85149;
+}
+
+.trading-plan-rows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 8px 0 0;
+}
+
+.trading-plan-rows dt {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.trading-plan-rows dd {
+  margin: 0;
+  font-size: 12px;
+  font-family: var(--font-num);
+  color: var(--text);
+}
+
+.trading-plan-note {
+  margin: 8px 0 0;
+  font-size: 10px;
+  color: var(--muted);
+}
+
 .grid-line {
   stroke: var(--line-soft);
   stroke-width: 1;

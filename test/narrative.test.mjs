@@ -10,6 +10,7 @@ import {
   entryPoints,
   currentStance,
   analyzeChart,
+  tradingPlan,
 } from '../js/narrative.js';
 import { supportResistanceLevels } from '../js/patterns.js';
 
@@ -260,4 +261,58 @@ test('analyzeChart: 진입 신호의 근거가 되는 지지/저항선도 함께
     assert.equal(typeof level.price, 'number');
     assert.equal(typeof level.touches, 'number');
   }
+});
+
+// ── 매매 전략 요약(tradingPlan) ───────────────────────────────
+
+const ZIGZAG_CYCLE = [90, 92, 95, 98, 100, 98, 95, 92];
+
+test('tradingPlan: 현재가가 지지선에 붙어 있고 구조 패턴이 약세가 아니면 매수 관점', () => {
+  const closes = [...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, 90];
+  const plan = tradingPlan(bars(closes), { span: 3 });
+  assert.equal(plan.verdict, 'buy');
+  near(plan.buy.price, 89.5, 1e-6, 'buy.price');
+  assert.ok(plan.sell, '매도 목표가(다음 저항선)도 함께 내야 한다');
+  assert.ok(plan.stop, '매수 관점에는 손절 참고가가 있어야 한다');
+  assert.ok(plan.stop.price < plan.buy.price, '손절가는 매수 참고가보다 낮아야 한다');
+});
+
+test('tradingPlan: 현재가가 저항선에 붙어 있고 구조 패턴이 강세가 아니면 매도 관점 — 재매수가도 함께 낸다', () => {
+  const closes = [...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, 90, 92, 95, 98, 100];
+  // 이 구간 자체가 상승 삼각형으로도 읽혀 강세 우세가 나올 수 있어, 판정 로직만
+  // 독립적으로 보려고 items 를 직접 넘겨 구조 패턴을 중립으로 고정한다.
+  const plan = tradingPlan(bars(closes), { span: 3, items: [] });
+  assert.equal(plan.verdict, 'sell');
+  near(plan.sell.price, 100.5, 1e-6, 'sell.price');
+  assert.ok(plan.buy, '재매수 참고가(지지선)도 함께 내야 한다');
+  near(plan.buy.price, 89.5, 1e-6, 'buy.price');
+});
+
+test('tradingPlan: 지지선에 붙어 있어도 구조 패턴이 약세 우세면 매수로 보지 않는다', () => {
+  const closes = [...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, 90];
+  const bearishItems = [{ group: 'bearish', index: 30, label: '상승 후 하락' }];
+  const plan = tradingPlan(bars(closes), { span: 3, items: bearishItems });
+  assert.equal(plan.verdict, 'wait');
+  assert.equal(plan.bias, 'bearish');
+});
+
+test('tradingPlan: 레벨 사이 중간이면 관망 — 양쪽 참고가를 범위로 제시한다', () => {
+  const closes = [...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, 90, 95];
+  const plan = tradingPlan(bars(closes), { span: 3 });
+  assert.equal(plan.verdict, 'wait');
+  assert.ok(plan.buy && plan.sell, '관망이어도 참고 범위(지지·저항)는 함께 내야 한다');
+});
+
+test('tradingPlan: 캔들이 너무 적으면 unknown 이고 예외를 던지지 않는다', () => {
+  const plan = tradingPlan(bars([100, 101, 99, 102]), { span: 3 });
+  assert.equal(plan.verdict, 'unknown');
+  assert.equal(plan.buy, null);
+  assert.equal(plan.sell, null);
+});
+
+test('tradingPlan: 문구는 예측이 아니라 참고 가격이라는 태도를 담는다(호출부가 고지를 따로 붙이므로 여기선 현재가·근거만 확인)', () => {
+  const closes = [...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, ...ZIGZAG_CYCLE, 90];
+  const plan = tradingPlan(bars(closes), { span: 3, quote: 'USDT' });
+  assert.ok(plan.text.includes('매수 관점'));
+  assert.equal(typeof plan.text, 'string');
 });

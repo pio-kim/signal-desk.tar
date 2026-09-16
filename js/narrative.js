@@ -292,7 +292,7 @@ export {
  *   `side` 는 배지를 극점 위(above)/아래(below) 어디에 그릴지, `group` 은
  *   색 구분(bullish/bearish/buy/sell/enter)이다.
  */
-export function analyzeChart(candles, { span = 5 } = {}) {
+export function analyzeChart(candles, { span = 5, quote = 'KRW' } = {}) {
   if (!candles || candles.length < BASE_WINDOW + BASE_RECENT_OFFSET + 1) return { items: [], stance: null, levels: [] };
 
   const n = candles.length;
@@ -310,7 +310,7 @@ export function analyzeChart(candles, { span = 5 } = {}) {
             index: bottomBase.anchorIndex,
             price: bottomBase.anchorPrice,
             side: 'below',
-            text: `바닥 다지기 후 상승 · ${formatPrice(bottomBase.rangeLow)}~${formatPrice(bottomBase.rangeHigh)} 박스권을 위로 이탈`,
+            text: `바닥 다지기 후 상승 · ${formatPrice(bottomBase.rangeLow, quote)}~${formatPrice(bottomBase.rangeHigh, quote)} 박스권을 위로 이탈`,
           }
         : {
             code: 'base-bottom',
@@ -319,7 +319,7 @@ export function analyzeChart(candles, { span = 5 } = {}) {
             index: bottomBase.anchorIndex,
             price: bottomBase.anchorPrice,
             side: 'below',
-            text: `바닥 다지기 · ${formatPrice(bottomBase.rangeLow)}~${formatPrice(bottomBase.rangeHigh)} 박스권에서 저점권 횡보 중`,
+            text: `바닥 다지기 · ${formatPrice(bottomBase.rangeLow, quote)}~${formatPrice(bottomBase.rangeHigh, quote)} 박스권에서 저점권 횡보 중`,
           },
     );
   }
@@ -335,7 +335,7 @@ export function analyzeChart(candles, { span = 5 } = {}) {
             index: topBase.anchorIndex,
             price: topBase.anchorPrice,
             side: 'above',
-            text: `횡보 후 하락 · ${formatPrice(topBase.rangeLow)}~${formatPrice(topBase.rangeHigh)} 박스권을 아래로 이탈`,
+            text: `횡보 후 하락 · ${formatPrice(topBase.rangeLow, quote)}~${formatPrice(topBase.rangeHigh, quote)} 박스권을 아래로 이탈`,
           }
         : {
             code: 'top-formation',
@@ -344,7 +344,7 @@ export function analyzeChart(candles, { span = 5 } = {}) {
             index: topBase.anchorIndex,
             price: topBase.anchorPrice,
             side: 'above',
-            text: `고점 형성 · ${formatPrice(topBase.rangeLow)}~${formatPrice(topBase.rangeHigh)} 박스권에서 고점권 횡보 중`,
+            text: `고점 형성 · ${formatPrice(topBase.rangeLow, quote)}~${formatPrice(topBase.rangeHigh, quote)} 박스권에서 고점권 횡보 중`,
           },
     );
   }
@@ -358,7 +358,7 @@ export function analyzeChart(candles, { span = 5 } = {}) {
       index: bull.extreme.index,
       price: bull.extreme.price,
       side: 'below',
-      text: `하락 후 반등 · ${formatPrice(bull.extreme.price)} 저점 확인 후 반등 진행 중`,
+      text: `하락 후 반등 · ${formatPrice(bull.extreme.price, quote)} 저점 확인 후 반등 진행 중`,
     });
   }
 
@@ -373,7 +373,7 @@ export function analyzeChart(candles, { span = 5 } = {}) {
       index: bear.extreme.index,
       price: bear.extreme.price,
       side: 'above',
-      text: `${label} · ${formatPrice(bear.extreme.price)} 고점 확인 후 하락 진행 중`,
+      text: `${label} · ${formatPrice(bear.extreme.price, quote)} 고점 확인 후 하락 진행 중`,
     });
   }
 
@@ -414,7 +414,7 @@ export function analyzeChart(candles, { span = 5 } = {}) {
       index: ltb.index,
       price: ltb.price,
       side: 'below',
-      text: `장기 바닥 확인 · ${formatPrice(ltb.price)} 저점이 ${ltb.barsSince}봉째 유지 중`,
+      text: `장기 바닥 확인 · ${formatPrice(ltb.price, quote)} 저점이 ${ltb.barsSince}봉째 유지 중`,
     });
   }
 
@@ -455,7 +455,7 @@ export function analyzeChart(candles, { span = 5 } = {}) {
       index: peak.index,
       price: peak.price,
       side: 'above',
-      text: `하락 추세 전환 · 쌍봉 넥라인 ${formatPrice(topDouble.neckline.price)} 하향 돌파`,
+      text: `하락 추세 전환 · 쌍봉 넥라인 ${formatPrice(topDouble.neckline.price, quote)} 하향 돌파`,
     });
   }
 
@@ -477,8 +477,8 @@ export function analyzeChart(candles, { span = 5 } = {}) {
       price: event.breakPrice,
       side: bullishEvent ? 'below' : 'above',
       text: bullishEvent
-        ? `지지선 돌파 · 저항선 ${formatPrice(event.level.price)}을 돌파해 지지선으로 전환, ${event.bars}봉째 유지 중`
-        : `저항선 돌파 · 지지선 ${formatPrice(event.level.price)}을 이탈해 저항선으로 전환, ${event.bars}봉째 유지 중`,
+        ? `지지선 돌파 · 저항선 ${formatPrice(event.level.price, quote)}을 돌파해 지지선으로 전환, ${event.bars}봉째 유지 중`
+        : `저항선 돌파 · 지지선 ${formatPrice(event.level.price, quote)}을 이탈해 저항선으로 전환, ${event.bars}봉째 유지 중`,
     });
   }
 
@@ -498,8 +498,8 @@ export function analyzeChart(candles, { span = 5 } = {}) {
     label: point.kind === 'enter' ? '진입' : point.kind === 'buy' ? '매수' : '매도',
     text:
       point.kind === 'enter'
-        ? `진입! · ${point.level.kind === 'support' ? '지지선' : '저항선'} ${formatPrice(point.level.price)} 재확인`
-        : `${point.kind === 'buy' ? '매수' : '매도'} 관점 · ${point.kind === 'buy' ? '지지선' : '저항선'} ${formatPrice(point.level.price)} 터치`,
+        ? `진입! · ${point.level.kind === 'support' ? '지지선' : '저항선'} ${formatPrice(point.level.price, quote)} 재확인`
+        : `${point.kind === 'buy' ? '매수' : '매도'} 관점 · ${point.kind === 'buy' ? '지지선' : '저항선'} ${formatPrice(point.level.price, quote)} 터치`,
   }));
 
   const sortedStructure = [...structure].sort((a, b) => a.index - b.index).slice(0, MAX_ANALYSIS_ITEMS);
@@ -519,5 +519,99 @@ export function analyzeChart(candles, { span = 5 } = {}) {
     // 진입 신호(entryPoints)가 실제로 참조하는 것과 같은 상위 레벨만 낸다 —
     // 배지 근거가 되는 선만 그려야 화면이 레벨 전부로 어지러워지지 않는다.
     levels: levels.slice(0, ENTRY_LEVEL_LIMIT),
+  };
+}
+
+// ── 매매 전략 요약 ───────────────────────────────────────────
+
+/** 매수 관점일 때, 2차 지지선이 없으면 지지선보다 이 비율 아래를 손절 참고가로 본다 */
+const STOP_MARGIN = 0.02;
+
+/**
+ * 지금이 매수하기 좋은 자리인지, 아니라면(=매도 관점) 어느 가격에서 재매수를
+ * 고려할지를 지지/저항선 + 구조 패턴의 방향성(강세/약세 우세)으로 요약한다.
+ *
+ * 판단 순서: ① 현재가가 지지선에 붙어 있고 구조 패턴이 약세 우세가 아니면
+ * 매수 관점 ② 현재가가 저항선에 붙어 있고 구조 패턴이 강세 우세가 아니면
+ * 매도 관점 ③ 둘 다 아니면(레벨 사이 중간이거나, 붙어 있어도 구조 패턴이
+ * 반대라 신뢰도가 낮으면) 관망 — 두 레벨을 참고 범위로만 제시한다.
+ *
+ * ⚠️ 지금 보이는 레벨·패턴을 기준으로 한 참고 가격일 뿐 예측이 아니다
+ * (README 고지와 같은 태도). 호출부는 반드시 이 태도가 드러나게 문구를
+ * 노출해야 한다.
+ *
+ * @param {Array} [options.items] analyzeChart() 의 items — 이미 계산해 둔
+ *   게 있으면 넘겨서 중복 계산을 피한다. 없으면 이 함수가 직접 계산한다.
+ */
+export function tradingPlan(candles, { span = 5, quote = 'KRW', items = null } = {}) {
+  if (!candles || candles.length < BASE_WINDOW + BASE_RECENT_OFFSET + 1) {
+    return {
+      verdict: 'unknown',
+      price: candles?.at(-1)?.close ?? null,
+      bias: 'neutral',
+      buy: null,
+      sell: null,
+      stop: null,
+      text: '아직 데이터가 부족해 참고 가격을 낼 수 없습니다.',
+    };
+  }
+
+  const levels = supportResistanceLevels(candles, { span });
+  const price = candles.at(-1).close;
+
+  const supportsBelow = levels.filter((l) => l.kind === 'support' && l.price <= price).sort((a, b) => b.price - a.price);
+  const resistancesAbove = levels.filter((l) => l.kind === 'resistance' && l.price >= price).sort((a, b) => a.price - b.price);
+  const buyLevel = supportsBelow[0] ?? null;
+  const sellLevel = resistancesAbove[0] ?? null;
+
+  const distToBuy = buyLevel ? Math.abs(price - buyLevel.price) / buyLevel.price : Infinity;
+  const distToSell = sellLevel ? Math.abs(sellLevel.price - price) / sellLevel.price : Infinity;
+
+  const structureItems = (items ?? analyzeChart(candles, { span, quote }).items).filter(
+    (item) => item.group === 'bullish' || item.group === 'bearish',
+  );
+  const bullishCount = structureItems.filter((item) => item.group === 'bullish').length;
+  const bearishCount = structureItems.filter((item) => item.group === 'bearish').length;
+  const bias = bullishCount > bearishCount ? 'bullish' : bearishCount > bullishCount ? 'bearish' : 'neutral';
+  const rationale = structureItems.filter((item) => item.group === bias).sort((a, b) => b.index - a.index)[0] ?? null;
+
+  const fmt = (value) => formatPrice(value, quote);
+  let verdict;
+  let text;
+
+  if (buyLevel && distToBuy <= STANCE_PROXIMITY && bias !== 'bearish') {
+    verdict = 'buy';
+    text = sellLevel
+      ? `지금(${fmt(price)})은 지지선 ${fmt(buyLevel.price)} 부근 — 매수 관점입니다. 다음 저항선 ${fmt(sellLevel.price)} 부근이 매도 우위 타이밍입니다.`
+      : `지금(${fmt(price)})은 지지선 ${fmt(buyLevel.price)} 부근 — 매수 관점입니다. 위로는 아직 뚜렷한 저항선이 없습니다.`;
+  } else if (sellLevel && distToSell <= STANCE_PROXIMITY && bias !== 'bullish') {
+    verdict = 'sell';
+    text = buyLevel
+      ? `지금(${fmt(price)})은 저항선 ${fmt(sellLevel.price)} 부근 — 매도 관점입니다. 매도한다면 지지선 ${fmt(buyLevel.price)} 부근이 재매수를 고려할 자리입니다.`
+      : `지금(${fmt(price)})은 저항선 ${fmt(sellLevel.price)} 부근 — 매도 관점입니다. 아래로는 아직 뚜렷한 지지선이 없습니다.`;
+  } else {
+    verdict = 'wait';
+    text =
+      buyLevel && sellLevel
+        ? `지금(${fmt(price)})은 지지선 ${fmt(buyLevel.price)}과 저항선 ${fmt(sellLevel.price)} 사이 — 매수·매도 어느 쪽도 우위가 아닙니다. 지지선 근처면 매수, 저항선 근처면 매도 관점으로 보세요.`
+        : '뚜렷한 지지·저항선이 아직 형성되지 않아 참고 가격을 제시하기 어렵습니다.';
+  }
+  if (rationale) text += ` (${rationale.label})`;
+
+  const stop =
+    verdict === 'buy' && buyLevel
+      ? supportsBelow[1]
+        ? { price: supportsBelow[1].price, touches: supportsBelow[1].touches }
+        : { price: buyLevel.price * (1 - STOP_MARGIN), touches: null }
+      : null;
+
+  return {
+    verdict,
+    price,
+    bias,
+    buy: buyLevel ? { price: buyLevel.price, touches: buyLevel.touches } : null,
+    sell: sellLevel ? { price: sellLevel.price, touches: sellLevel.touches } : null,
+    stop,
+    text,
   };
 }
