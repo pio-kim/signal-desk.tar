@@ -98,11 +98,17 @@ export function createUpbitStyle({
     return raw.map(parseTicker);
   }
 
-  async function fetchCandles(coin, timeframeKey, count = CANDLE_COUNT) {
+  /**
+   * @param {string|null} to 이 시각(UTC ISO8601) 이전의 캔들을 요청한다 — 과거로
+   *   페이지네이션할 때만 쓴다(app.js 의 loadCycleHistory). 보통 흐름은 그냥
+   *   최신 count 개만 받으므로 생략(null)한다.
+   */
+  async function fetchCandles(coin, timeframeKey, count = CANDLE_COUNT, to = null) {
     const endpoint = ENDPOINTS[timeframeKey];
     if (!endpoint) throw new ExchangeError(`알 수 없는 봉 주기: ${timeframeKey}`, { exchange: name });
 
-    const raw = await getJson(`${rest}/${endpoint}?market=${symbolOf(coin)}&count=${count}`, {
+    const toParam = to ? `&to=${encodeURIComponent(to)}` : '';
+    const raw = await getJson(`${rest}/${endpoint}?market=${symbolOf(coin)}&count=${count}${toParam}`, {
       exchange: name,
     });
     return parseCandles(raw);

@@ -21,7 +21,7 @@ import {
   sentimentCategory,
 } from './config.js';
 import { EXCHANGES, exchangeOf, fxExchange } from './exchanges/index.js';
-import { cycleLowValueUsd } from './patterns.js';
+import { cycleLowValueUsd, dateToUtcMs, HALVING_CYCLE_LOW_ANCHORS } from './patterns.js';
 import { combineTimeframes, evaluateTimeframe, gradeOf } from './signal.js';
 import { consensus, crossExchangeGap, directionLabel, withExternal } from './aggregate.js';
 import { STATUS, createRealtime } from './realtime.js';
@@ -91,6 +91,12 @@ const state = {
   periodCandles: null,
   periodLoading: false,
   periodError: null,
+  /**
+   * 비트코인 4년 주기 저점선을 실제 과거 캔들과 함께 보여주기 위한 업비트
+   * 전용 페이지네이션 캐시. { exchange, coin, candles, loading, error }.
+   * loadCycleHistory() 참고.
+   */
+  cycleHistory: null,
   /** 확대 상태. null = 자동(기간 없으면 CHART_BARS, 기간 있으면 전체). 숫자면 그만큼만 그린다. */
   chartZoomBars: null,
   /** 마지막으로 그린 캔들 총 개수 — 줌 상/하한을 정하는 기준(zoomChart 가 읽는다). */
@@ -955,6 +961,67 @@ function cycleAnchorFor(exchange, coin, nowMs) {
   return { priceNow: (anchorInQuote / btcPrice) * coinPrice, atMs: nowMs };
 }
 
+/** 페이지 사이 최소 간격. 업비트 공개 API 한도를 존중한다(다른 곳의 candleGapMs 와 같은 값). */
+const CYCLE_HISTORY_PAGE_GAP_MS = POLL.candleGapMs;
+/** 안전장치 — 서버가 예상과 다르게 응답해도 무한 루프에 빠지지 않게 상한을 둔다. */
+const CYCLE_HISTORY_MAX_PAGES = 40;
+/** 첫 앵커(2015-01-14)보다 이만큼 더 과거까지 받아 시작점 앞뒤 맥락을 보여준다. */
+const CYCLE_HISTORY_LEAD_DAYS = 180;
+
+/** 페이지들(각각 오래된→최신 정렬)을 하나로 합치고, 겹치는 날짜는 최신 응답으로 덮어써 중복을 없앤다. */
+function mergeCandlePages(pages) {
+  const byDate = new Map();
+  for (const batch of pages) {
+    for (const candle of batch) byDate.set(candle.kst.slice(0, 10), candle);
+  }
+  return [...byDate.values()].sort((a, b) => a.time - b.time);
+}
+
+/**
+ * 비트코인 4년 주기 저점선을 실제 과거 캔들과 함께 보려면 업비트 한 번의
+ * 요청(최대 200개)으로는 어림없다 — 2015년 첫 저점까지 약 4,300일이다.
+ * 이 프로젝트는 원래 loadPeriodCandles 주석대로 '페이지네이션으로 늘리지
+ * 않는다'는 원칙을 지켜 왔지만, 이 기능만은 실측 저점을 실제 가격 흐름과
+ * 나란히 봐야 뜻이 있어 예외로 둔다. **업비트에만** 적용하는 이유는 이 앱이
+ * 업비트를 '기준 거래소'로 삼고 있고(markets.js), 거래소 7곳 전부에 같은
+ * 방식을 넣으면 거래소마다 20여 회씩 요청이 늘어 부담이 크기 때문이다.
+ *
+ * 'to' 커서로 과거로 한 페이지씩 이어받는다. 겹침 방지를 위해 직전 페이지의
+ * 가장 오래된 캔들보다 1초 앞선 시각을 다음 요청의 to 로 쓴다 — 업비트의
+ * to 가 inclusive 인지 exclusive 인지 문서로 확신할 수 없어, 어느 쪽이어도
+ * 안전하도록 여유를 둔다(그래도 겹치면 mergeCandlePages 가 날짜로 한 번 더 정리한다).
+ */
+async function loadCycleHistory(exchange, coin) {
+  const key = { exchange: exchange.id, coin };
+  const targetMs = dateToUtcMs(HALVING_CYCLE_LOW_ANCHORS[0].date) - CYCLE_HISTORY_LEAD_DAYS * 86_400_000;
+  const pages = [];
+  let cursor = null;
+
+  try {
+    for (let page = 0; page < CYCLE_HISTORY_MAX_PAGES; page += 1) {
+      const batch = await exchange.fetchCandles(coin, 'day', 200, cursor);
+      if (!batch.length) break;
+      pages.push(batch);
+
+      const oldest = batch[0];
+      if (dateToUtcMs(oldest.kst.slice(0, 10)) <= targetMs) break;
+
+      cursor = new Date(oldest.time.getTime() - 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      if (page < CYCLE_HISTORY_MAX_PAGES - 1) await new Promise((resolve) => setTimeout(resolve, CYCLE_HISTORY_PAGE_GAP_MS));
+    }
+
+    state.cycleHistory = { ...key, candles: mergeCandlePages(pages), loading: false, error: null };
+  } catch (error) {
+    state.cycleHistory = {
+      ...key,
+      candles: null,
+      loading: false,
+      error: `${exchange.name} 과거 데이터를 받지 못했습니다: ${error?.message ?? '알 수 없는 오류'}`,
+    };
+  }
+  renderChartPanel();
+}
+
 function renderChartPanel() {
   const exchange = exchangeOf(state.selectedExchange);
   const price = state.tickers[exchange.id]?.get(state.selectedCoin)?.price;
@@ -981,28 +1048,56 @@ function renderChartPanel() {
     return;
   }
 
-  const candles = periodReady
-    ? state.periodCandles.candles
-    : withLivePrice(
-        state.candles[exchange.id]?.[state.selectedCoin]?.[state.chartTimeframe] ?? null,
-        price,
-      );
+  /*
+   * 사이클 저점선 + 업비트 = 과거 실측 캔들을 함께 보여준다(loadCycleHistory
+   * 주석 참고). '기간' 탭을 따로 골랐으면 그 선택을 존중해 이 경로는 건드리지
+   * 않는다 — 사용자가 명시적으로 고른 기간을 조용히 덮어쓰면 안 된다.
+   */
+  const cycleOn = state.patternCategories.has('cycle');
+  const cycleWantsHistory = cycleOn && !periodActive && exchange.id === 'upbit';
+  const cycleCacheMatches =
+    state.cycleHistory?.exchange === exchange.id && state.cycleHistory?.coin === state.selectedCoin;
+  const cycleReady = cycleWantsHistory && cycleCacheMatches && Array.isArray(state.cycleHistory?.candles);
+
+  if (cycleWantsHistory && !cycleCacheMatches) {
+    state.cycleHistory = { exchange: exchange.id, coin: state.selectedCoin, candles: null, loading: true, error: null };
+    // renderChartPanel() 재진입 중에 바로 fetch 를 시작하면 안전하지 않아 다음 틱으로 미룬다.
+    setTimeout(() => loadCycleHistory(exchange, state.selectedCoin), 0);
+  }
+
+  if (cycleWantsHistory && state.cycleHistory?.loading) {
+    dom.chart.textContent = '';
+    const message = document.createElement('p');
+    message.className = 'chart-empty';
+    message.textContent = '비트코인 4년 주기 저점선을 위해 업비트 과거 일봉을 받는 중입니다… (최초 1회, 페이지네이션이라 몇 초 걸립니다)';
+    dom.chart.append(message);
+    return;
+  }
+
+  // periodReady 와 같은 이유로 실시간 틱을 덧씌우지 않는다 — 아래 note 가 '실시간
+  // 갱신 안 됨'이라고 적는 것과 실제 동작을 맞춘다(과거 페이지네이션 스냅샷이다).
+  const candles = cycleReady
+    ? state.cycleHistory.candles
+    : periodReady
+      ? state.periodCandles.candles
+      : withLivePrice(
+          state.candles[exchange.id]?.[state.selectedCoin]?.[state.chartTimeframe] ?? null,
+          price,
+        );
 
   // 줌 상한은 '지금 실제로 갖고 있는 캔들 개수' — zoomChart 가 이 값을 기준으로 확대/축소한다.
   state.chartMaxBars = candles?.length || CHART_BARS;
   const bars = state.chartZoomBars
     ? Math.min(state.chartZoomBars, state.chartMaxBars)
-    : periodReady
+    : periodReady || cycleReady
       ? candles.length
       : null;
 
-  const cycleAnchor = state.patternCategories.has('cycle')
-    ? cycleAnchorFor(exchange, state.selectedCoin, Date.now())
-    : null;
+  const cycleAnchor = cycleOn ? cycleAnchorFor(exchange, state.selectedCoin, Date.now()) : null;
 
   renderChart(dom.chart, {
     candles,
-    timeframeKey: periodReady ? 'day' : state.chartTimeframe,
+    timeframeKey: periodReady || cycleReady ? 'day' : state.chartTimeframe,
     quote: exchange.quote,
     subPanel: state.subPanel,
     bars,
@@ -1011,13 +1106,30 @@ function renderChartPanel() {
   });
   updateZoomControls(bars);
 
-  if (periodReady) {
+  if (cycleReady) {
+    const note = document.createElement('p');
+    note.className = 'chart-period-note';
+    const firstDate = state.cycleHistory.candles[0]?.kst?.slice(0, 10) ?? '?';
+    note.textContent = `비트코인 4년 주기 — ${exchange.name} 실측 일봉 ${state.cycleHistory.candles.length}개(${firstDate} ~) · 과거 구간은 실시간으로 갱신되지 않습니다.`;
+    dom.chart.append(note);
+  } else if (periodReady) {
     const note = document.createElement('p');
     note.className = 'chart-period-note';
     note.textContent =
       candles.length < periodSpec.days
         ? `${exchange.name} 는 한 번에 최근 캔들 ${candles.length}개까지만 내줍니다 — ${periodSpec.label} 전체가 아닙니다.`
         : `${periodSpec.label} 일봉 ${candles.length}개 · ${exchange.name} 기준 · 이 조회는 실시간으로 갱신되지 않습니다.`;
+    dom.chart.append(note);
+  } else if (cycleWantsHistory && state.cycleHistory?.error) {
+    const note = document.createElement('p');
+    note.className = 'chart-period-note';
+    note.textContent = state.cycleHistory.error;
+    dom.chart.append(note);
+  } else if (cycleOn && exchange.id !== 'upbit') {
+    const note = document.createElement('p');
+    note.className = 'chart-period-note';
+    note.textContent =
+      '비트코인 4년 주기 저점선의 실측 과거 데이터는 업비트에서만 함께 표시됩니다 — 다른 거래소는 투영 구간만 보입니다.';
     dom.chart.append(note);
   }
 }
