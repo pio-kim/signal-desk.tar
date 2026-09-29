@@ -16,6 +16,10 @@ import {
   falseBreakouts,
   heldBreakouts,
   whipsaw,
+  HALVING_CYCLE_LOW_ANCHORS,
+  dateToUtcMs,
+  cycleLowValueUsd,
+  cycleLowProjection,
 } from '../js/patterns.js';
 
 /** near 비교. 나눗셈이 섞인 값(피보나치·VWAP)은 정확 비교가 안 통한다. */
@@ -499,4 +503,72 @@ test('whipsaw: 교차가 기준 미만이면 null', () => {
   // 한 번만 꺾이는 모양 — 교차 1회
   closes.splice(30, 10, ...Array.from({ length: 10 }, (_, i) => 158 - i * 4));
   assert.equal(whipsaw(bars(closes), { period: 5, window: 20, minCrosses: 4 }), null);
+});
+
+// ── 매크로 사이클(비트코인 4년 주기) ──────────────────────────
+
+const DAY_MS = 86_400_000;
+
+test('dateToUtcMs: YYYY-MM-DD 를 UTC 자정 ms로 바꾼다', () => {
+  assert.equal(dateToUtcMs('2015-01-14'), Date.UTC(2015, 0, 14));
+  assert.equal(dateToUtcMs('2022-11-21'), Date.UTC(2022, 10, 21));
+});
+
+test('cycleLowValueUsd: 앵커 날짜에서는 그 앵커의 실측값을 정확히 낸다(연결선이므로 회귀 근사가 아니다)', () => {
+  for (const anchor of HALVING_CYCLE_LOW_ANCHORS) {
+    near(cycleLowValueUsd(dateToUtcMs(anchor.date)), anchor.usd, 1e-6, anchor.date);
+  }
+});
+
+test('cycleLowValueUsd: 두 앵커 사이는 로그공간에서 선형 보간된다', () => {
+  const [a, b] = HALVING_CYCLE_LOW_ANCHORS;
+  const midMs = (dateToUtcMs(a.date) + dateToUtcMs(b.date)) / 2;
+  const expected = Math.sqrt(a.usd * b.usd); // 로그 중점 = 기하평균
+  near(cycleLowValueUsd(midMs), expected, expected * 1e-6);
+});
+
+test('cycleLowValueUsd: 마지막 앵커 이후는 가장 최근 구간(2018→2022)의 기울기로 연장한다', () => {
+  const [, mid, last] = HALVING_CYCLE_LOW_ANCHORS;
+  const midMs = dateToUtcMs(mid.date);
+  const lastMs = dateToUtcMs(last.date);
+  const segmentSlope = (Math.log10(last.usd) - Math.log10(mid.usd)) / (lastMs - midMs);
+
+  const futureMs = lastMs + 365 * DAY_MS;
+  const expected = 10 ** (Math.log10(last.usd) + segmentSlope * (futureMs - lastMs));
+  near(cycleLowValueUsd(futureMs), expected, expected * 1e-6);
+});
+
+test('cycleLowValueUsd: 첫 앵커 이전도 값을 낸다(첫 구간 기울기로 역연장, 상수 함수처럼 끊기지 않는다)', () => {
+  const [first, second] = HALVING_CYCLE_LOW_ANCHORS;
+  const beforeMs = dateToUtcMs(first.date) - 365 * DAY_MS;
+  const value = cycleLowValueUsd(beforeMs);
+  assert.ok(value > 0 && value < first.usd, '첫 저점보다 앞선 시점은 첫 저점보다 낮아야 한다(우상향 곡선)');
+});
+
+test('cycleLowProjection: 기준 시각(nowMs)의 배율은 항상 1이다', () => {
+  const now = dateToUtcMs('2026-01-01');
+  const points = cycleLowProjection(now, now + 30 * DAY_MS, now, 10);
+  near(points[0].ratio, 1, 1e-9);
+});
+
+test('cycleLowProjection: 배율은 시간이 지날수록 커진다(사이클 저점선은 우상향)', () => {
+  const now = dateToUtcMs('2026-01-01');
+  const points = cycleLowProjection(now, now + 365 * DAY_MS, now, 12);
+  for (let i = 1; i < points.length; i += 1) {
+    assert.ok(points[i].ratio > points[i - 1].ratio, `점 ${i} 는 이전 점보다 배율이 커야 한다`);
+  }
+});
+
+test('cycleLowProjection: steps+1 개의 점을 고르게 낸다', () => {
+  const now = dateToUtcMs('2026-01-01');
+  const points = cycleLowProjection(now, now + 100 * DAY_MS, now, 5);
+  assert.equal(points.length, 6);
+  assert.equal(points[0].ms, now);
+  assert.equal(points.at(-1).ms, now + 100 * DAY_MS);
+});
+
+test('cycleLowProjection: toMs 가 fromMs 이하이면 빈 배열', () => {
+  const now = dateToUtcMs('2026-01-01');
+  assert.deepEqual(cycleLowProjection(now, now, now), []);
+  assert.deepEqual(cycleLowProjection(now, now - DAY_MS, now), []);
 });

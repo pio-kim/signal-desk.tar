@@ -6,7 +6,7 @@
  */
 
 import { bollinger, macd, rsi, sma, stochastic } from './indicators.js';
-import { detectPatterns } from './patterns.js';
+import { cycleLowProjection, dateToUtcMs, detectPatterns } from './patterns.js';
 import { analyzeChart, tradingPlan } from './narrative.js';
 import { CHART_BARS, PERIODS } from './config.js';
 import {
@@ -27,6 +27,13 @@ const GAP = 10;
 const PAD_TOP = 10;
 
 const svgNS = 'http://www.w3.org/2000/svg';
+
+const DAY_MS = 86_400_000;
+/** 사이클 저점선 토글 시 미래로 확보하는 기간. "향후 1년" 요구사항 그대로다. */
+const CYCLE_FUTURE_DAYS = 365;
+
+/** 캔들의 KST 문자열('YYYY-MM-DDTHH:mm:ss')에서 날짜만 뽑아 UTC 자정 ms로. */
+const kstDayMs = (kst) => dateToUtcMs(kst.slice(0, 10));
 
 /**
  * 지표는 전체 캔들로 계산한 뒤 최근 구간만 잘라 그린다.
@@ -59,13 +66,19 @@ function prepare(candles, bars) {
 
 const finite = (values) => values.filter((v) => v !== null && Number.isFinite(v));
 
-function priceRange(view) {
+/**
+ * @param {object} view
+ * @param {number[]} [extraValues] 사이클 저점선처럼 캔들 밖에서 오는 값도 축에
+ *   포함시키고 싶을 때 쓴다 — 빼면 토글을 켜도 선이 화면 밖으로 잘려 안 보일 수 있다.
+ */
+function priceRange(view, extraValues = []) {
   const values = [
     ...view.candles.map((c) => c.high),
     ...view.candles.map((c) => c.low),
     ...finite(view.upper),
     ...finite(view.lower),
     ...finite(view.ma60),
+    ...finite(extraValues),
   ];
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -91,6 +104,12 @@ function linePath(values, xOf, yOf) {
     open = true;
   });
   return path;
+}
+
+/** {x,y} 점 배열을 SVG path 문자열로. linePath() 와 달리 좌표를 미리 계산해 둔 값에 쓴다. */
+function pathFromPoints(points) {
+  if (!points.length) return '';
+  return points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join('');
 }
 
 function bandPath(upper, lower, xOf, yOf) {
@@ -198,10 +217,42 @@ function boundedTrendSegment(line, xOf, yOf, from, to, cls) {
  * 지표와 달리 '봉우리가 비슷한 높이'같은 허용 오차 안에서 결정되기
  * 때문이다 — patterns.js 상단 주석 참고.
  */
-function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote, analysis }) {
+function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote, analysis, cycle }) {
   const layer = el('g', { class: 'pattern-layer' });
   const legend = [];
   if (!categories || !categories.size) return { node: layer, legend };
+
+  /*
+   * 비트코인 4년 주기(반감기 사이클) 저점선 — 다른 카테고리와 달리 로드된
+   * 캔들만으로는 계산할 수 없다(실측 저점이 화면 밖 과거에 있다). 그래서
+   * detectPatterns() 를 거치지 않고, renderChart() 가 미리 계산해 넘겨주는
+   * cycle 컨텍스트(날짜 범위 + 현재가 기준 앵커)를 그대로 좌표로 옮긴다.
+   * 일봉이 아니거나 BTC 시세를 구하지 못해 cycle 이 null 이면 조용히 건너뛴다.
+   */
+  if (categories.has('cycle')) {
+    if (cycle?.points?.length) {
+      const xOfMs = (ms) => xOf((ms - cycle.firstMs) / cycle.msPerBar);
+      const toXY = (p) => ({ x: xOfMs(p.ms), y: yPrice(p.price) });
+
+      const past = cycle.points.filter((p) => p.ms <= cycle.lastMs).map(toXY);
+      const future = cycle.points.filter((p) => p.ms >= cycle.lastMs).map(toXY);
+      const pastPath = pathFromPoints(past);
+      const futurePath = pathFromPoints(future);
+      if (pastPath) layer.append(el('path', { d: pastPath, class: 'pattern-line cycle-line' }));
+      if (futurePath) layer.append(el('path', { d: futurePath, class: 'pattern-line cycle-line cycle-future' }));
+
+      const projected = cycle.points.at(-1).price;
+      legend.push({
+        cls: 'cycle',
+        text: `비트코인 4년 주기 저점선 · 1년 후 ${formatPrice(projected, quote)} 추정 (2015·2018·2022 저점 연결, 참고용 — 예측 아님)`,
+      });
+    } else {
+      legend.push({
+        cls: 'cycle',
+        text: cycle?.reason ?? '비트코인 4년 주기 저점선은 일봉 차트에서만 표시됩니다.',
+      });
+    }
+  }
 
   const count = view.candles.length;
   const patterns = detectPatterns(view.candles, { span: swingSpanFor(count) });
@@ -514,7 +565,15 @@ function renderPatternLegend(container, legend) {
  */
 export function renderChart(
   container,
-  { candles, timeframeKey, quote = 'KRW', bars = null, subPanel = 'rsi', patternCategories = null },
+  {
+    candles,
+    timeframeKey,
+    quote = 'KRW',
+    bars = null,
+    subPanel = 'rsi',
+    patternCategories = null,
+    cycleAnchor = null,
+  },
 ) {
   container.textContent = '';
 
@@ -536,11 +595,41 @@ export function renderChart(
     PAD_TOP + PRICE_HEIGHT + VOLUME_HEIGHT + GAP + SUB_HEIGHT + TIME_HEIGHT;
 
   const count = view.candles.length;
-  const barWidth = plotWidth / count;
+
+  /*
+   * 사이클 저점선 — 미래 1년을 보여주려면 캔들이 안 차지하는 여백을 x축에
+   * 미리 확보해야 한다(기존 xOf 는 캔들 개수만큼만 폭을 쓴다). 4시간/1시간
+   * 처럼 '4년 주기'가 뜻이 통하지 않는 봉 주기에서는 아예 계산하지 않는다
+   * — h1 에서 365일치 여백을 만들면 실제 캔들이 폭의 1% 미만으로 뭉개진다.
+   */
+  const cycleActive = Boolean(patternCategories?.has('cycle'));
+  let cycle = null;
+  if (cycleActive) {
+    if (timeframeKey !== 'day') {
+      cycle = { reason: '비트코인 4년 주기 저점선은 일봉 차트에서만 표시됩니다.' };
+    } else if (!(cycleAnchor?.priceNow > 0)) {
+      cycle = { reason: 'BTC 시세를 확인할 수 없어 비트코인 4년 주기 저점선을 표시할 수 없습니다.' };
+    } else {
+      const firstMs = kstDayMs(view.candles[0].kst);
+      const lastMs = kstDayMs(view.candles[count - 1].kst);
+      const msPerBar = count > 1 ? (lastMs - firstMs) / (count - 1) : DAY_MS;
+      const toMs = lastMs + CYCLE_FUTURE_DAYS * DAY_MS;
+      const points = cycleLowProjection(firstMs, toMs, lastMs, 48).map((p) => ({
+        ms: p.ms,
+        price: cycleAnchor.priceNow * p.ratio,
+      }));
+      const futureBars = msPerBar > 0 ? Math.max(1, Math.round((CYCLE_FUTURE_DAYS * DAY_MS) / msPerBar)) : 0;
+      cycle = { firstMs, lastMs, msPerBar, futureBars, points };
+    }
+  }
+  const futureBars = cycle?.futureBars ?? 0;
+
+  const barWidth = plotWidth / (count + futureBars);
   const bodyWidth = Math.max(1, Math.min(barWidth * 0.62, 14));
   const xOf = (i) => i * barWidth + barWidth / 2;
 
-  const { min, max } = priceRange(view);
+  const cycleExtra = cycle?.points?.map((p) => p.price) ?? [];
+  const { min, max } = priceRange(view, cycleExtra);
   const yPrice = scaler(min, max, PAD_TOP, PRICE_HEIGHT);
 
   const volumeTop = PAD_TOP + PRICE_HEIGHT;
@@ -617,7 +706,14 @@ export function renderChart(
   const plan = tradingPlan(view.candles, { span: analysisSpan, quote, items: analysis.items });
 
   // ── 참고용 차트선 (지지/저항·추세선·패턴 등, 켠 카테고리만) ──
-  const { node: patternNode, legend } = patternLayer(view, patternCategories, { xOf, yPrice, plotWidth, quote, analysis });
+  const { node: patternNode, legend } = patternLayer(view, patternCategories, {
+    xOf,
+    yPrice,
+    plotWidth,
+    quote,
+    analysis,
+    cycle,
+  });
   svg.append(patternNode);
 
   // ── 거래량 막대 ───────────────────────────────────────────
@@ -659,6 +755,35 @@ export function renderChart(
     });
     label.textContent = formatAxisTime(view.candles[i].kst, timeframeKey);
     svg.append(label);
+  }
+
+  /*
+   * 미래 투영 구간 — 캔들이 없어 위 루프가 못 닿는 영역이다. '지금' 경계선을
+   * 긋고, 약 90일 간격(분기)으로 미래 날짜를 따로 찍는다. 매일 찍으면
+   * futureBars 만큼 글자가 겹쳐 읽을 수 없다.
+   */
+  if (cycle?.points?.length && futureBars > 0) {
+    const nowX = xOf((cycle.lastMs - cycle.firstMs) / cycle.msPerBar);
+    svg.append(
+      el('line', { x1: nowX, y1: PAD_TOP, x2: nowX, y2: subTop + SUB_HEIGHT, class: 'cycle-now-line' }),
+    );
+
+    const QUARTER_DAYS = 90;
+    const barsPerQuarter = Math.max(1, Math.round((QUARTER_DAYS * DAY_MS) / cycle.msPerBar));
+    for (let bar = barsPerQuarter; bar <= futureBars; bar += barsPerQuarter) {
+      const ms = cycle.lastMs + bar * cycle.msPerBar;
+      const x = xOf(count - 1 + bar);
+      if (x > plotWidth) break;
+      const date = new Date(ms);
+      const label = el('text', {
+        x,
+        y: timeY,
+        class: 'axis-label time cycle-future-label',
+        'text-anchor': x > plotWidth - 24 ? 'end' : 'middle',
+      });
+      label.textContent = `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+      svg.append(label);
+    }
   }
 
   // ── 십자선 (호버 시에만 보인다) ────────────────────────────

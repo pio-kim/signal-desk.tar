@@ -1267,6 +1267,33 @@ main {
   stroke-width: 1.4;
 }
 
+/*
+ * 비트코인 4년 주기(반감기 사이클) 저점선. 비트코인 브랜드 오렌지를 써서
+ * 다른 참고선(초록·빨강·보라·청록)과 확실히 구분한다. 미래 투영 구간은
+ * 실측이 아니라 추정이므로 점선 + 낮은 불투명도로 다르게 표시한다.
+ */
+.pattern-line.cycle-line {
+  stroke: #f7931a;
+  stroke-width: 1.6;
+}
+
+.pattern-line.cycle-future {
+  stroke-dasharray: 5 4;
+  opacity: 0.75;
+}
+
+.cycle-now-line {
+  stroke: #f7931a;
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.4;
+}
+
+.axis-label.cycle-future-label {
+  fill: #f7931a;
+  opacity: 0.8;
+}
+
 .pattern-line.neckline {
   stroke: #e6e6e6;
   stroke-width: 1.2;
@@ -1407,6 +1434,10 @@ main {
 .pattern-legend-item.vwap,
 .pattern-legend-item.poc {
   color: #56d4dd;
+}
+
+.pattern-legend-item.cycle {
+  color: #f7931a;
 }
 
 /* ── 패턴 분석(narrative.js) — 번호 배지 + 서술형 리포트 ──── */

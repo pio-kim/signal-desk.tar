@@ -21,6 +21,7 @@ import {
   sentimentCategory,
 } from './config.js';
 import { EXCHANGES, exchangeOf, fxExchange } from './exchanges/index.js';
+import { cycleLowValueUsd } from './patterns.js';
 import { combineTimeframes, evaluateTimeframe, gradeOf } from './signal.js';
 import { consensus, crossExchangeGap, directionLabel, withExternal } from './aggregate.js';
 import { STATUS, createRealtime } from './realtime.js';
@@ -923,7 +924,36 @@ const PATTERN_CATEGORIES = [
   { key: 'continuation', label: '지속' },
   { key: 'traps', label: '거짓 무빙' },
   { key: 'analysis', label: '패턴 분석' },
+  { key: 'cycle', label: '비트코인 4년 주기' },
 ];
+
+/**
+ * 비트코인 4년 주기(반감기 사이클) 저점선의 '지금' 앵커 가격을, 현재 보는
+ * 차트의 종목·거래소 스케일로 환산한다.
+ *
+ * patterns.js 의 cycleLowValueUsd() 는 USD 기준 이론값만 낸다 — 그 자체로는
+ * KRW 거래소나 BTC 아닌 종목에 그대로 쓸 수 없다. 그래서 여기서:
+ *   1) KRW 거래소면 현재 USDT/KRW 환율로 그 값을 KRW 로 바꾸고(과거 시점의
+ *      정확한 환율은 없으므로 '지금' 환율로 근사한다 — 참고용 선이라 이 정도
+ *      오차는 감수한다),
+ *   2) 그 값을 '지금 BTC 시세 대비 비율'로 바꾼 뒤, 그 비율을 지금 보고 있는
+ *      종목의 시세에 그대로 곱한다 — BTC 를 보고 있으면 비율×BTC시세=원래
+ *      값 그대로가 되어 별도 분기 없이 자연스럽게 들어맞는다.
+ * BTC 시세를 못 구했거나(그 거래소에 BTC 가 없거나 시세 도착 전), KRW
+ * 거래소인데 환율이 아직 안 왔으면(연결 초기 몇 초) null — 환율 없이 그냥
+ * USD 숫자를 KRW 인 척 꽂으면 실제 가격과 자릿수가 다른 선이 잠깐 그려진다.
+ */
+function cycleAnchorFor(exchange, coin, nowMs) {
+  const btcPrice = state.tickers[exchange.id]?.get('BTC')?.price;
+  const coinPrice = state.tickers[exchange.id]?.get(coin)?.price;
+  if (!(btcPrice > 0) || !(coinPrice > 0)) return null;
+  if (exchange.quote === 'KRW' && !(state.fxRate > 0)) return null;
+
+  const anchorUsd = cycleLowValueUsd(nowMs);
+  const anchorInQuote = exchange.quote === 'KRW' ? anchorUsd * state.fxRate : anchorUsd;
+
+  return { priceNow: (anchorInQuote / btcPrice) * coinPrice, atMs: nowMs };
+}
 
 function renderChartPanel() {
   const exchange = exchangeOf(state.selectedExchange);
@@ -966,6 +996,10 @@ function renderChartPanel() {
       ? candles.length
       : null;
 
+  const cycleAnchor = state.patternCategories.has('cycle')
+    ? cycleAnchorFor(exchange, state.selectedCoin, Date.now())
+    : null;
+
   renderChart(dom.chart, {
     candles,
     timeframeKey: periodReady ? 'day' : state.chartTimeframe,
@@ -973,6 +1007,7 @@ function renderChartPanel() {
     subPanel: state.subPanel,
     bars,
     patternCategories: state.patternCategories,
+    cycleAnchor,
   });
   updateZoomControls(bars);
 
