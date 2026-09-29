@@ -621,7 +621,8 @@ export function whipsaw(
  * 잡기 위한 기준점일 뿐이다).
  */
 export const HALVING_CYCLE_LOW_ANCHORS = [
-  { date: '2015-01-14', usd: 152 }, // 2013 버블 이후 바닥 (2012 반감기 사이클)
+  // 참고 표시용 — fitCycleLowLine() 은 이 점을 선 계산에 쓰지 않는다(아래 설명).
+  { date: '2015-01-14', usd: 152, reference: true }, // 2013 버블 이후 바닥 (2012 반감기 사이클)
   { date: '2018-12-15', usd: 3122 }, // 2017 버블 이후 바닥 (2016 반감기 사이클)
   { date: '2022-11-21', usd: 15460 }, // FTX 붕괴 바닥 (2020 반감기 사이클)
 ];
@@ -633,33 +634,30 @@ export function dateToUtcMs(dateStr) {
 }
 
 /**
- * 앵커들을 **하나의 직선**으로 잇는다 — 실제 비트코인 사이클 저점 추세선이
- * 흔히 그려지는 방식 그대로다(TradingView 의 "Bitcoin Cycle Lows"·
- * "Logarithmic Regression" 류 지표들이 공통으로 쓰는 방식: 가격축을 로그
- * 스케일로 두고 그 위에서 저점들을 하나의 직선으로 잇는다 — 시간축은
- * 그대로 두고 가격만 log10 을 취하면 지수 성장이 직선으로 펴진다).
+ * 앵커들을 **하나의 직선**으로 잇는다 — 가격축을 로그 스케일로 두고 그 위에서
+ * 저점들을 직선으로 잇는 것이 실제 비트코인 사이클 저점 추세선의 표준 방식이다
+ * (TradingView 의 "Bitcoin Cycle Lows"·"Logarithmic Regression" 류 지표들이
+ * 공통으로 쓰는 방식).
  *
- * 처음에는 각 앵커를 정확히 지나는 구간별(piecewise) 꺾은선으로 만들었으나,
- * 실제 분석 관행과 어긋난다(사용자 확인 — 분석용 추세선은 꺾이지 않는
- * 하나의 직선이어야 한다). 세 점을 최소자승으로 회귀하면 어느 점도 정확히
- * 지나지는 않지만(직접 계산해 보면 2018 저점을 최대 40% 안팎 벗어난다),
- * 이 정도 오차는 '세 점을 전부 지나는 직선은 존재할 수 없다'는 데서 오는
- * 불가피한 근사다 — 가격축이 로그 스케일인 차트(chart.js 의 cycleActive
- * 상태) 위에서는 이 회귀선이 실제로 곧게 뻗은 직선으로 그려진다.
+ * '하나의 직선'과 '모든 저점을 정확히 통과'는 세 점이 완전히 일직선이 아닌 한
+ * (실측이 그렇다) 동시에 만족할 수 없다 — 최소자승 회귀로 세 점 전부에 맞추면
+ * 어느 점도 정확히 지나지 않는다(직접 계산해 보면 2018 저점을 40% 안팎
+ * 벗어난다). 그래서 **가장 최근 두 저점(2018→2022)만으로 직선을 만든다**
+ * (사용자 확인, 2026-09) — 두 점은 항상 정확히 하나의 직선을 이루므로 '저점을
+ * 정확히 지남'과 '꺾이지 않는 직선' 둘 다 만족하고, 오래된 2015 저점(다른
+ * 반감기 사이클이라 지금 추세와 무관해진 정보)을 섞어 최근 기울기를 흐리지
+ * 않는다. 2015 저점은 `HALVING_CYCLE_LOW_ANCHORS` 에 `reference: true` 로만
+ * 남겨 둔다(선 계산에는 미사용, 맥락 설명용).
  */
 function fitCycleLowLine(anchors) {
-  const points = anchors.map((a) => ({ t: dateToUtcMs(a.date), y: Math.log10(a.usd) }));
-  const n = points.length;
-  const meanT = points.reduce((sum, p) => sum + p.t, 0) / n;
-  const meanY = points.reduce((sum, p) => sum + p.y, 0) / n;
-  let num = 0;
-  let den = 0;
-  for (const p of points) {
-    num += (p.t - meanT) * (p.y - meanY);
-    den += (p.t - meanT) ** 2;
-  }
-  const slope = den === 0 ? 0 : num / den;
-  const intercept = meanY - slope * meanT;
+  const [a, b] = anchors
+    .filter((anchor) => !anchor.reference)
+    .map((anchor) => ({ t: dateToUtcMs(anchor.date), y: Math.log10(anchor.usd) }))
+    .sort((p, q) => p.t - q.t)
+    .slice(-2);
+
+  const slope = (b.y - a.y) / (b.t - a.t);
+  const intercept = a.y - slope * a.t;
   return (ms) => 10 ** (slope * ms + intercept);
 }
 

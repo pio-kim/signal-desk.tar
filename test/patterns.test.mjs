@@ -514,28 +514,29 @@ test('dateToUtcMs: YYYY-MM-DD 를 UTC 자정 ms로 바꾼다', () => {
   assert.equal(dateToUtcMs('2022-11-21'), Date.UTC(2022, 10, 21));
 });
 
-test('cycleLowValueUsd: 세 앵커를 하나의 직선(로그-선형 회귀)으로 근사한다 — 어느 점도 정확히 지나지는 않는다', () => {
-  // 세 점을 모두 지나는 직선은 수학적으로 존재하지 않는다(collinear 가 아니므로).
-  // 그래도 같은 자릿수(오더) 안에는 들어와야 '근사'라고 부를 수 있다.
-  for (const anchor of HALVING_CYCLE_LOW_ANCHORS) {
-    const fitted = cycleLowValueUsd(dateToUtcMs(anchor.date));
-    const ratio = fitted / anchor.usd;
-    assert.ok(ratio > 0.3 && ratio < 3, `${anchor.date} 근사치가 자릿수를 벗어남: 실측 ${anchor.usd}, 적합 ${fitted.toFixed(0)}`);
+test('cycleLowValueUsd: 가장 최근 두 저점(2018·2022)은 정확히 지난다', () => {
+  const recent = HALVING_CYCLE_LOW_ANCHORS.filter((a) => !a.reference);
+  assert.equal(recent.length, 2, '기준선 계산에 쓰이는 저점은 정확히 2개여야 한다');
+  for (const anchor of recent) {
+    near(cycleLowValueUsd(dateToUtcMs(anchor.date)), anchor.usd, anchor.usd * 1e-9, anchor.date);
   }
 });
 
-test('cycleLowValueUsd: 로그 공간에서 정말로 하나의 직선이다 — 어느 구간에서 재도 연 성장률(배율)이 같다', () => {
-  // piecewise 로 되돌아가면(세그먼트마다 기울기가 다르면) 이 배율이 구간마다 달라진다.
-  // 진짜 한 직선(단일 회귀)이면 시간을 어디서 잘라도 같은 배율이 나와야 한다.
+test('cycleLowValueUsd: reference 표시된 2015 저점은 선 계산에서 제외된다(오래된 사이클이라 최근 기울기를 흐리지 않는다)', () => {
+  const anchor = HALVING_CYCLE_LOW_ANCHORS.find((a) => a.reference);
+  assert.ok(anchor, 'reference 앵커가 있어야 한다');
+  const fitted = cycleLowValueUsd(dateToUtcMs(anchor.date));
+  assert.notEqual(fitted, anchor.usd, '2015 는 선 위에 정확히 있지 않아야 한다(2점 직선에 안 쓰였으므로)');
+});
+
+test('cycleLowValueUsd: 로그 공간에서 하나의 직선이다 — 어느 구간에서 재도 연 성장률(배율)이 같다', () => {
   const yearGrowth = (fromDate) => {
     const t = dateToUtcMs(fromDate);
     return cycleLowValueUsd(t + 365 * DAY_MS) / cycleLowValueUsd(t);
   };
-  const g1 = yearGrowth('2016-06-01'); // 2015→2018 구간 안
-  const g2 = yearGrowth('2020-06-01'); // 2018→2022 구간 안
-  const g3 = yearGrowth('2026-01-01'); // 2022 이후(미래 투영 구간)
-  near(g2, g1, g1 * 1e-9, '2015~2018 구간과 2018~2022 구간의 연 성장률');
-  near(g3, g1, g1 * 1e-9, '미래 투영 구간과 과거 구간의 연 성장률');
+  const g1 = yearGrowth('2020-06-01'); // 2018→2022 구간 안(선을 만든 구간)
+  const g2 = yearGrowth('2026-01-01'); // 2022 이후(미래 투영 구간) — 같은 직선의 연장이어야 한다
+  near(g2, g1, g1 * 1e-9, '2018~2022 구간과 미래 투영 구간의 연 성장률');
 });
 
 test('cycleLowValueUsd: 시간이 지날수록 계속 커진다(우상향 직선)', () => {

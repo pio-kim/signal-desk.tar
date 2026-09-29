@@ -264,7 +264,7 @@ function patternLayer(view, categories, { xOf, yPrice, plotWidth, quote, analysi
       const projected = cycle.points.at(-1).price;
       legend.push({
         cls: 'cycle',
-        text: `비트코인 4년 주기 저점선 · 1년 후 ${formatPrice(projected, quote)} 추정 (2015·2018·2022 저점 연결, 참고용 — 예측 아님)`,
+        text: `비트코인 4년 주기 저점선 · 1년 후 ${formatPrice(projected, quote)} 추정 (2018·2022 저점을 직선으로 연결, 2015 저점은 참고만, 참고용 — 예측 아님)`,
       });
     } else {
       legend.push({
