@@ -88,18 +88,22 @@ export function formatClock(date = new Date()) {
   return clock.format(date);
 }
 
-/** 캔들 시각. 업비트가 준 KST 문자열을 그대로 쓴다(변환 오차 없음). */
+/**
+ * 캔들 시각. 업비트가 준 KST 문자열을 그대로 쓴다(변환 오차 없음).
+ * 일봉은 연도까지 적는다 — 기간 조회·사이클 저점선 둘 다 여러 해를 오가므로
+ * 연도가 없으면 '09/29'가 어느 해인지 알 수 없다(실제로 있었던 혼동).
+ */
 export function formatCandleTime(kst, timeframeKey) {
   const [date, time] = kst.split('T');
-  const [, month, day] = date.split('-');
-  if (timeframeKey === 'day') return `${month}/${day}`;
+  const [year, month, day] = date.split('-');
+  if (timeframeKey === 'day') return `${year}/${month}/${day}`;
   return `${month}/${day} ${time.slice(0, 5)}`;
 }
 
 export function formatAxisTime(kst, timeframeKey) {
   const [date, time] = kst.split('T');
-  const [, month, day] = date.split('-');
-  return timeframeKey === 'day' ? `${month}/${day}` : time.slice(0, 5);
+  const [year, month, day] = date.split('-');
+  return timeframeKey === 'day' ? `${year}/${month}/${day}` : time.slice(0, 5);
 }
 
 export function formatVolume(value) {
