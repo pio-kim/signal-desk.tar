@@ -12,12 +12,13 @@ import * as binance from './binance.js';
 import * as bybit from './bybit.js';
 import * as coinbase from './coinbase.js';
 import * as kraken from './kraken.js';
+import * as okx from './okx.js';
 
-export const EXCHANGES = [upbit, bithumb, coinone, binance, bybit, coinbase, kraken];
+export const EXCHANGES = [upbit, bithumb, coinone, binance, bybit, coinbase, kraken, okx];
 
 export const exchangeOf = (id) => EXCHANGES.find((exchange) => exchange.id === id);
 
 /** 김치 프리미엄의 기준 환율을 제공하는 거래소(업비트) */
 export const fxExchange = EXCHANGES.find((exchange) => exchange.providesFx);
 
-export { upbit, bithumb, coinone, binance, bybit, coinbase, kraken };
+export { upbit, bithumb, coinone, binance, bybit, coinbase, kraken, okx };

@@ -13,11 +13,38 @@ export const DEFAULT_COINS = [
 /**
  * 동시 감시 종목 상한.
  *
- * 거래소 7 × 종목 N × 주기 3 이 30초마다 돈다. 한도가 가장 낮은 크라켄은
+ * 거래소 8 × 종목 N × 주기 3 이 30초마다 돈다. 한도가 가장 낮은 크라켄은
  * 요청 간격을 600ms 로 벌려야 해서 N=6 이면 한 바퀴에 10.8초가 걸린다.
  * N=20 이면 36초로 갱신 주기를 넘어 캔들이 밀리기 시작한다.
  */
 export const MAX_COINS = 6;
+
+/**
+ * 업비트 원화 마켓 카탈로그에 없는 종목의 수동 등록 — markets.js 의 카탈로그는
+ * 업비트 기준이라(파일 상단 주석 참고) 업비트에 없는 종목은 검색해도 나오지
+ * 않는다. `exchanges` 는 이 종목을 실제로 파는 거래소 id 목록이다.
+ *
+ * 이 목록에 없는 일반 종목은 '모든 거래소에 있을 수 있다'고 보고 그대로
+ * 요청한다(기존 동작 무변경) — 여기 있는 종목만 명시된 거래소로 요청을
+ * 좁힌다. 업비트·바이낸스처럼 **여러 종목을 한 요청에 묶어 보내는 거래소**는
+ * 모르는 심볼 하나가 섞이면 요청 전체가 실패한다(실측 확인 — Upbit 404,
+ * Binance 400). 종목을 추가할 때는 반드시 그 거래소가 실제로 그 심볼을
+ * 파는지 확인부터 할 것.
+ */
+export const EXTRA_COINS = [{ id: 'PI', name: '파이코인', exchanges: ['okx'] }];
+
+/** coinId → 그 종목을 파는 거래소 id 배열, 또는 제한 없음이면 null. */
+export function exchangesFor(coinId) {
+  return EXTRA_COINS.find((coin) => coin.id === coinId)?.exchanges ?? null;
+}
+
+/** coins 중 이 거래소가 실제로 갖고 있는(또는 제한이 없는) 것만 남긴다. */
+export function coinsSupportedBy(exchangeId, coins) {
+  return coins.filter((coinId) => {
+    const restrict = exchangesFor(coinId);
+    return !restrict || restrict.includes(exchangeId);
+  });
+}
 
 /** 실시간 수급(호가·체결) 스트림을 받는 거래소 */
 export const FLOW_EXCHANGE = 'upbit';

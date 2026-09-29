@@ -8,7 +8,7 @@
  * 강등하고, 그 뒤에도 주기적으로 소켓 복귀를 시도한다.
  */
 
-import { POLL, REALTIME } from './config.js';
+import { POLL, REALTIME, coinsSupportedBy } from './config.js';
 
 export const STATUS = {
   connecting: { key: 'connecting', label: '연결 중' },
@@ -23,6 +23,9 @@ const socketsAvailable = typeof WebSocket !== 'undefined';
 export function createRealtime({ exchanges, coins, onTick, onStatus, onOrderbook, onTrade }) {
   const controllers = new Map();
   let running = false;
+  // 실제로 거래소에 요청·구독을 보낼 때는 coinsSupportedBy() 로 거래소별로
+  // 좁힌다(config.js 의 EXTRA_COINS) — 그 거래소가 안 파는 종목을 섞어 보내면
+  // 배치 요청 전체가 실패하는 거래소가 있다(업비트 404, 바이낸스 400, 실측).
   let watched = coins;
 
   const setStatus = (exchange, status, detail = null) => {
@@ -46,7 +49,7 @@ export function createRealtime({ exchanges, coins, onTick, onStatus, onOrderbook
 
     const pull = async () => {
       try {
-        const tickers = await exchange.fetchTickers(watched);
+        const tickers = await exchange.fetchTickers(coinsSupportedBy(exchange.id, watched));
         for (const ticker of tickers) onTick(ticker);
         if (controller.status !== STATUS.live) setStatus(exchange, STATUS.polling);
       } catch (error) {
@@ -76,7 +79,7 @@ export function createRealtime({ exchanges, coins, onTick, onStatus, onOrderbook
     setStatus(exchange, controller.failures ? controller.status : STATUS.connecting);
 
     try {
-      controller.socket = exchange.openSocket(watched, {
+      controller.socket = exchange.openSocket(coinsSupportedBy(exchange.id, watched), {
         onOpen: () => {
           controller.failures = 0;
           // 소켓이 살아나면 폴백 폴링을 멈춘다. 둘을 함께 돌리면 호출만 낭비된다.

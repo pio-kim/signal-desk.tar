@@ -819,8 +819,9 @@ main {
 }
 
 /*
- * 거래소별 점수 압축 격자. 거래소가 7곳이 되면서 한 줄씩 쌓는 방식은 카드를
- * 세 배로 늘려 놓았다. 시세와 봉 주기별 점수는 아래 합의 격자가 담당한다.
+ * 거래소별 점수 압축 격자. 거래소가 여럿(현재 8곳)이 되면서 한 줄씩 쌓는
+ * 방식은 카드를 세 배로 늘려 놓았다. 시세와 봉 주기별 점수는 아래 합의
+ * 격자가 담당한다.
  */
 .feed-cells {
   display: grid;
@@ -1694,6 +1695,17 @@ main {
 }
 
 .feed-cell.price-only .feed-cell-score {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* 이 종목을 아예 안 파는 거래소 — price-only 보다 더 흐리게 둬 '영영 안 온다'는 뜻을 구분한다. */
+.feed-cell.unlisted {
+  opacity: 0.4;
+}
+
+.feed-cell.unlisted .feed-cell-score {
   font-size: 11px;
   font-weight: 400;
   color: var(--muted);

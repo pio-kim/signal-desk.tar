@@ -15,6 +15,7 @@ import * as binance from '../js/exchanges/binance.js';
 import * as bybit from '../js/exchanges/bybit.js';
 import * as coinbase from '../js/exchanges/coinbase.js';
 import * as kraken from '../js/exchanges/kraken.js';
+import * as okx from '../js/exchanges/okx.js';
 import { EXCHANGES, exchangeOf, fxExchange } from '../js/exchanges/index.js';
 import { aggregateCandles, candleFrom, kstString } from '../js/exchanges/shared.js';
 import { DEFAULT_COINS as COINS, MAX_COINS, TIMEFRAMES } from '../js/config.js';
@@ -98,6 +99,36 @@ const BYBIT_KLINE = {
   },
 };
 
+// 실제 OKX 응답에서 잡아온 값(PI-USDT, 2026-09-29).
+const OKX_TICKER = {
+  code: '0',
+  msg: '',
+  data: [
+    {
+      instType: 'SPOT',
+      instId: 'PI-USDT',
+      last: '0.09043',
+      open24h: '0.08875',
+      high24h: '0.09088',
+      low24h: '0.08756',
+      volCcy24h: '2047493.61728288',
+      vol24h: '22922770.822',
+      ts: '1790673569068',
+    },
+  ],
+};
+
+const OKX_CANDLES = {
+  code: '0',
+  msg: '',
+  data: [
+    ['1790611200000', '83369.9', '84374.2', '82778.1', '83802.9', '3074.75546455', '257004868.785916502', '257004868.785916502', '0'],
+    ['1790524800000', '84464.8', '85000', '82556.6', '83371.1', '7055.99094822', '588808484.681285437', '588808484.681285437', '1'],
+  ],
+};
+
+const OKX_NOT_FOUND = { code: '51001', data: [], msg: "Instrument ID, Instrument ID code, or Spread ID doesn't exist." };
+
 // ── 공통 계약 ────────────────────────────────────────────────
 
 test('모든 어댑터가 같은 인터페이스를 노출한다', () => {
@@ -113,14 +144,14 @@ test('환율 제공 거래소는 업비트 하나뿐이다', () => {
   assert.equal(EXCHANGES.filter((e) => e.providesFx).length, 1);
 });
 
-test('레지스트리에 거래소 7곳이 견적 통화별로 담겨 있다', () => {
+test('레지스트리에 거래소 8곳이 견적 통화별로 담겨 있다', () => {
   assert.deepEqual(
     EXCHANGES.map((e) => e.id),
-    ['upbit', 'bithumb', 'coinone', 'binance', 'bybit', 'coinbase', 'kraken'],
+    ['upbit', 'bithumb', 'coinone', 'binance', 'bybit', 'coinbase', 'kraken', 'okx'],
   );
   assert.deepEqual(
     EXCHANGES.map((e) => e.quote),
-    ['KRW', 'KRW', 'KRW', 'USDT', 'USDT', 'USD', 'USD'],
+    ['KRW', 'KRW', 'KRW', 'USDT', 'USDT', 'USD', 'USD', 'USDT'],
   );
 });
 
@@ -331,6 +362,59 @@ test('Bybit 소켓: 티커가 아닌 메시지는 무시한다', () => {
   const cache = new Map();
   assert.equal(bybit.mergeSocketMessage(cache, { op: 'pong', success: true }), null);
   assert.equal(bybit.mergeSocketMessage(cache, { topic: 'orderbook.1.XRPUSDT', data: {} }), null);
+});
+
+// ── OKX (파이코인이 이 거래소에만 있어 추가됨, EXTRA_COINS 참고) ─
+
+test('OKX 심볼: 코인-USDT 형식이다', () => {
+  assert.equal(okx.symbolOf('PI'), 'PI-USDT');
+  assert.equal(okx.symbolOf('BTC'), 'BTC-USDT');
+});
+
+test('OKX 티커: open24h 로 변화 금액·비율을 직접 만든다', () => {
+  const ticker = okx.parseTicker(OKX_TICKER.data[0]);
+
+  assert.equal(ticker.exchange, 'okx');
+  assert.equal(ticker.coin, 'PI');
+  assert.equal(ticker.price, 0.09043);
+  assert.ok(Math.abs(ticker.changePrice - (0.09043 - 0.08875)) < 1e-9, `실제 ${ticker.changePrice}`);
+  assert.ok(Math.abs(ticker.changeRate - (0.09043 - 0.08875) / 0.08875) < 1e-9, `실제 ${ticker.changeRate}`);
+  assert.equal(ticker.direction, 'RISE');
+  assert.equal(ticker.dayHigh, 0.09088);
+  assert.equal(ticker.dayLow, 0.08756);
+});
+
+test('OKX 캔들: 최신순 응답을 뒤집는다', () => {
+  const candles = okx.parseCandles(OKX_CANDLES);
+
+  assert.equal(candles.length, 2);
+  assert.ok(candles[0].time < candles[1].time, '오래된 봉이 먼저 와야 한다');
+  assert.equal(candles[0].close, 83371.1);
+  assert.equal(candles[1].close, 83802.9);
+});
+
+test('OKX 캔들: 응답이 비어도 예외를 던지지 않는다', () => {
+  assert.deepEqual(okx.parseCandles({ code: '0', data: [] }), []);
+  assert.deepEqual(okx.parseCandles({}), []);
+});
+
+test('OKX 티커: 없는 종목(51001)이면 그 종목만 건너뛰고 나머지는 계속 받는다', async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    calls.push(url);
+    const body = url.includes('NOPE') ? OKX_NOT_FOUND : OKX_TICKER;
+    return { ok: true, status: 200, json: async () => body };
+  };
+
+  try {
+    const tickers = await okx.fetchTickers(['PI', 'NOPE']);
+    assert.equal(tickers.length, 1, 'NOPE 는 조용히 빠지고 PI 만 남아야 한다');
+    assert.equal(tickers[0].coin, 'PI');
+    assert.equal(calls.length, 2, '두 종목 다 요청은 했어야 한다');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // ── 빗썸 (업비트 프로토콜 공유) ──────────────────────────────

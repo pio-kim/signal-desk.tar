@@ -1,12 +1,15 @@
 /**
- * 감시 종목 관리 — 업비트 KRW 마켓 기준.
+ * 감시 종목 관리 — 업비트 KRW 마켓 기준(+ config.js 의 EXTRA_COINS 로 수동 보강).
  *
  * 업비트를 기준으로 삼는 이유는 원화 마켓이 사용자의 실제 거래 대상이고,
  * 종목 코드가 `KRW-BTC` 처럼 자산명을 그대로 담아 다른 거래소 심볼로 옮기기
  * 쉽기 때문이다. 해외 거래소에 없는 알트코인은 그 거래소만 판정에서 빠진다.
+ * 반대로 업비트에 아예 없는 종목(파이코인 등)은 `EXTRA_COINS` 에 수동으로
+ * 등록해야 카탈로그에 나온다 — realtime.js·app.js 가 그 종목을 파는 거래소
+ * 로만 요청을 좁힌다(config.js 의 coinsSupportedBy 참고).
  */
 
-import { DEFAULT_COINS, MAX_COINS } from './config.js';
+import { DEFAULT_COINS, EXTRA_COINS, MAX_COINS } from './config.js';
 import { getJson } from './exchanges/shared.js';
 
 const STORAGE_KEY = 'signal-desk.coins';
@@ -15,7 +18,7 @@ const STORAGE_KEY = 'signal-desk.coins';
 let catalogCache = null;
 
 /**
- * 업비트 KRW 마켓 전체.
+ * 업비트 KRW 마켓 전체 + config.js 의 EXTRA_COINS(업비트에 없는 수동 등록 종목).
  * @returns {Promise<Array<{id, name, code, warning}>>}
  */
 export async function fetchCatalog() {
@@ -25,7 +28,7 @@ export async function fetchCatalog() {
     exchange: '업비트',
   });
 
-  catalogCache = raw
+  const upbitMarkets = raw
     .filter((market) => market.market.startsWith('KRW-'))
     .map((market) => ({
       id: market.market.replace('KRW-', ''),
@@ -33,8 +36,18 @@ export async function fetchCatalog() {
       code: market.market,
       // 업비트가 투자주의를 붙인 종목. 화면에 그대로 드러내야 한다.
       warning: Boolean(market.market_event?.warning),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    }));
+
+  // code 는 업비트 마켓 심볼 형식이라 EXTRA_COINS 에는 없다 — 검색·표시에는
+  // id/name 만 쓰이므로 null 로 둬도 무방하다.
+  const extraMarkets = EXTRA_COINS.map((coin) => ({
+    id: coin.id,
+    name: coin.name,
+    code: null,
+    warning: false,
+  }));
+
+  catalogCache = [...upbitMarkets, ...extraMarkets].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
 
   return catalogCache;
 }

@@ -17,6 +17,8 @@ import {
   TIMEFRAMES,
   SENTIMENT_API,
   candleCategories,
+  coinsSupportedBy,
+  exchangesFor,
   flowCategory,
   sentimentCategory,
 } from './config.js';
@@ -672,34 +674,41 @@ function gauge(coin, agreement, grade, evaluation) {
 /**
  * 거래소별 점수를 압축 격자로 보여준다.
  *
- * 거래소가 7곳이 되면서 한 줄씩 쌓는 방식은 카드를 세 배로 늘려 놓았다.
- * 카드에서는 '어디가 몇 점인가'만 남기고, 시세·봉 주기별 점수는 아래 합의
- * 격자로 옮겼다. 같은 정보를 두 곳에 두면 화면만 길어진다.
+ * 거래소가 여럿(현재 8곳)이 되면서 한 줄씩 쌓는 방식은 카드를 세 배로 늘려
+ * 놓았다. 카드에서는 '어디가 몇 점인가'만 남기고, 시세·봉 주기별 점수는 아래
+ * 합의 격자로 옮겼다. 같은 정보를 두 곳에 두면 화면만 길어진다.
  */
 function exchangeRows(coin, evaluation) {
   const list = el('ul', 'feed-cells');
+  // EXTRA_COINS 로 등록된 종목(예: 파이코인)은 등록된 거래소 밖에서는 영영
+  // 시세가 오지 않는다 — '시세 대기 중'이라고 적으면 언젠가 온다는 뜻으로
+  // 읽혀 오해를 준다.
+  const restrict = exchangesFor(coin);
 
   for (const exchange of EXCHANGES) {
     const result = evaluation?.byExchange?.[exchange.id];
     const score = result?.score ?? null;
     const grade = result?.grade ?? gradeOf(null);
     const ticker = state.tickers[exchange.id]?.get(coin);
+    const unlisted = restrict && !restrict.includes(exchange.id);
 
     const priceOnly = exchange.browserRest === false;
-    const item = el('li', `feed-cell tick-${exchange.id}${priceOnly ? ' price-only' : ''}`);
+    const item = el('li', `feed-cell tick-${exchange.id}${priceOnly ? ' price-only' : ''}${unlisted ? ' unlisted' : ''}`);
     item.append(el('span', 'feed-cell-name', exchange.name));
     item.append(
       el(
         'span',
         `feed-cell-score tone-${grade.key}`,
-        priceOnly ? '시세만' : formatScore(score),
+        unlisted ? '미상장' : priceOnly ? '시세만' : formatScore(score),
       ),
     );
-    item.title = priceOnly
-      ? `${exchange.name} · ${exchange.note}. 시세는 소켓으로 받지만 캔들을 못 받아 지표를 계산하지 않는다`
-      : ticker
-        ? `${exchange.name} · ${grade.label} ${formatScore(score)}점 · ${formatPrice(ticker.price, exchange.quote)} ${exchange.quote}`
-        : `${exchange.name} · 시세 대기 중`;
+    item.title = unlisted
+      ? `${exchange.name} 에는 상장돼 있지 않습니다`
+      : priceOnly
+        ? `${exchange.name} · ${exchange.note}. 시세는 소켓으로 받지만 캔들을 못 받아 지표를 계산하지 않는다`
+        : ticker
+          ? `${exchange.name} · ${grade.label} ${formatScore(score)}점 · ${formatPrice(ticker.price, exchange.quote)} ${exchange.quote}`
+          : `${exchange.name} · 시세 대기 중`;
 
     list.append(item);
   }
@@ -983,8 +992,8 @@ function mergeCandlePages(pages) {
  * 이 프로젝트는 원래 loadPeriodCandles 주석대로 '페이지네이션으로 늘리지
  * 않는다'는 원칙을 지켜 왔지만, 이 기능만은 실측 저점을 실제 가격 흐름과
  * 나란히 봐야 뜻이 있어 예외로 둔다. **업비트에만** 적용하는 이유는 이 앱이
- * 업비트를 '기준 거래소'로 삼고 있고(markets.js), 거래소 7곳 전부에 같은
- * 방식을 넣으면 거래소마다 20여 회씩 요청이 늘어 부담이 크기 때문이다.
+ * 업비트를 '기준 거래소'로 삼고 있고(markets.js), 거래소 전부(현재 8곳)에
+ * 같은 방식을 넣으면 거래소마다 20여 회씩 요청이 늘어 부담이 크기 때문이다.
  *
  * 'to' 커서로 과거로 한 페이지씩 이어받는다. 겹침 방지를 위해 직전 페이지의
  * 가장 오래된 캔들보다 1초 앞선 시각을 다음 요청의 to 로 쓴다 — 업비트의
@@ -1898,7 +1907,9 @@ async function loadCandles() {
   await Promise.all(
     fetchable.map(async (exchange) => {
       try {
-        const { data, failures: partial } = await exchange.fetchCandleSet(coinIds());
+        const { data, failures: partial } = await exchange.fetchCandleSet(
+          coinsSupportedBy(exchange.id, coinIds()),
+        );
         applyCandles(exchange, data);
         failures.push(...partial);
       } catch (error) {
@@ -2182,7 +2193,7 @@ function stopPolling() {
 /**
  * 탭이 보이지 않는 동안에는 캔들 조회를 멈춘다.
  *
- * 소켓은 그대로 둔다 — 끊으면 복귀할 때 7곳을 다시 연결하는 지연이 생기고,
+ * 소켓은 그대로 둔다 — 끊으면 복귀할 때 여덟 곳을 다시 연결하는 지연이 생기고,
  * 체결 누적이 비어 체결강도가 '표본 부족' 으로 떨어진다. 반면 캔들 조회는
  * 30초마다 54회라 백그라운드에서 계속 돌 이유가 없다.
  */

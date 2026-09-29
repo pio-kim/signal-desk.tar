@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SIGNAL DESK — 비트코인·리플·이더리움 거래소 7곳 시그널</title>
+    <title>SIGNAL DESK — 비트코인·리플·이더리움 거래소 8곳 시그널</title>
     <meta
       name="description"
-      content="업비트·빗썸·코인원·바이낸스·Bybit·코인베이스·크라켄 일곱 거래소의 시세로 RSI·MACD·이동평균·볼린저밴드·거래량을 계산해 매수/매도 시그널과 거래소 합의도를 실시간으로 보여줍니다."
+      content="업비트·빗썸·코인원·바이낸스·Bybit·코인베이스·크라켄·OKX 여덟 거래소의 시세로 RSI·MACD·이동평균·볼린저밴드·거래량을 계산해 매수/매도 시그널과 거래소 합의도를 실시간으로 보여줍니다."
     />
     <link rel="stylesheet" href="css/style.css" />
   </head>
@@ -15,7 +15,7 @@
       <div class="brand">
         <span class="brand-mark">SIGNAL</span>
         <span class="brand-name">DESK</span>
-        <p class="brand-sub">국내 3곳 · 해외 4곳 실시간 시그널</p>
+        <p class="brand-sub">국내 3곳 · 해외 5곳 실시간 시그널</p>
       </div>
       <div class="status">
         <button id="coin-toggle" type="button" class="coin-toggle" aria-expanded="false">
@@ -128,14 +128,19 @@
 
     <footer class="disclaimer">
       <p>
-        업비트·빗썸·코인원·바이낸스·Bybit·코인베이스·크라켄의 공개 시장 데이터에 기술적 지표를
-        적용한 계산 결과입니다. 투자 자문이 아니며 미래 가격을 예측하지 않습니다.
+        업비트·빗썸·코인원·바이낸스·Bybit·코인베이스·크라켄·OKX의 공개 시장 데이터에 기술적
+        지표를 적용한 계산 결과입니다. 투자 자문이 아니며 미래 가격을 예측하지 않습니다.
       </p>
       <p>
         <strong>코인원</strong>은 공개 API가 CORS를 허용하지 않아 브라우저에서 캔들을 받을 수
         없습니다. WebSocket은 제약이 없으므로 시세만 표시하고 지표 판정에서는 제외합니다. 거래소별
         일봉 시작 시각도 다릅니다 — 업비트는 09:00 KST, 빗썸은 00:00 KST 기준이라 같은 종목의
         일봉 지표가 서로 다를 수 있습니다.
+      </p>
+      <p>
+        <strong>파이코인</strong>처럼 업비트 원화 마켓에 없는 일부 종목은 그 종목을 실제로 파는
+        거래소(OKX 등) 한 곳의 데이터만으로 판정합니다 — 거래소 합의도의 뜻이 여러 곳을 비교하는
+        데 있으므로, 이런 종목은 합의도 대신 단일 거래소 판정으로 보시기 바랍니다.
       </p>
       <p>
         시그널은 <strong>18개 지표를 6개 카테고리</strong>로 묶어 계산합니다. 카테고리 안에서는
