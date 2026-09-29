@@ -70,8 +70,10 @@ const finite = (values) => values.filter((v) => v !== null && Number.isFinite(v)
  * @param {object} view
  * @param {number[]} [extraValues] 사이클 저점선처럼 캔들 밖에서 오는 값도 축에
  *   포함시키고 싶을 때 쓴다 — 빼면 토글을 켜도 선이 화면 밖으로 잘려 안 보일 수 있다.
+ * @param {{log?: boolean}} [opts] log 면 여백을 곱셈으로 준다(로그축에서 뺄셈 여백은
+ *   저가 쪽을 과하게, 고가 쪽을 너무 적게 밀어내 눈금 간격이 뒤틀린다).
  */
-function priceRange(view, extraValues = []) {
+function priceRange(view, extraValues = [], { log = false } = {}) {
   const values = [
     ...view.candles.map((c) => c.high),
     ...view.candles.map((c) => c.low),
@@ -82,6 +84,10 @@ function priceRange(view, extraValues = []) {
   ];
   const min = Math.min(...values);
   const max = Math.max(...values);
+  if (log) {
+    const padFactor = 1.06;
+    return { min: Math.max(min / padFactor, 1e-9), max: max * padFactor };
+  }
   const pad = (max - min) * 0.04 || max * 0.01 || 1;
   return { min: min - pad, max: max + pad };
 }
@@ -90,6 +96,20 @@ function priceRange(view, extraValues = []) {
 function scaler(min, max, top, height) {
   const span = max - min || 1;
   return (value) => top + height - ((value - min) / span) * height;
+}
+
+/**
+ * scaler() 의 로그축 버전. 사이클 저점선(patterns.js 의 cycleLowValueUsd)은
+ * 로그 가격 공간에서 직선이 되도록 설계했다 — 이 스케일러로 그려야 실제로
+ * 화면에도 직선으로 보인다(선형 스케일러로 그리면 지수적으로 휘어 보인다).
+ * 표준 TA 관행과 같다: BTC 처럼 자릿수가 여러 번 바뀌는 자산은 로그축을 쓴다.
+ */
+function logScaler(min, max, top, height) {
+  const safeMin = Math.max(min, 1e-9);
+  const logMin = Math.log10(safeMin);
+  const logMax = Math.log10(Math.max(max, safeMin * 1.0001));
+  const span = logMax - logMin || 1;
+  return (value) => top + height - ((Math.log10(Math.max(value, safeMin)) - logMin) / span) * height;
 }
 
 function linePath(values, xOf, yOf) {
@@ -628,9 +648,12 @@ export function renderChart(
   const bodyWidth = Math.max(1, Math.min(barWidth * 0.62, 14));
   const xOf = (i) => i * barWidth + barWidth / 2;
 
+  // 사이클 저점선은 로그 가격 공간에서 직선이 되도록 계산했다 — 실제로 직선으로
+  // 보이려면 가격축 자체를 로그 스케일로 바꿔야 한다(표준 BTC 장기 차트 관행).
+  const logScale = Boolean(cycle?.points?.length);
   const cycleExtra = cycle?.points?.map((p) => p.price) ?? [];
-  const { min, max } = priceRange(view, cycleExtra);
-  const yPrice = scaler(min, max, PAD_TOP, PRICE_HEIGHT);
+  const { min, max } = priceRange(view, cycleExtra, { log: logScale });
+  const yPrice = logScale ? logScaler(min, max, PAD_TOP, PRICE_HEIGHT) : scaler(min, max, PAD_TOP, PRICE_HEIGHT);
 
   const volumeTop = PAD_TOP + PRICE_HEIGHT;
   const maxVolume = Math.max(...view.candles.map((candle) => candle.volume ?? 0), 1);
@@ -650,8 +673,10 @@ export function renderChart(
   // ── 가격 눈금 ──────────────────────────────────────────────
   const priceLabel = axisPriceFormatter(max, quote);
   const grid = el('g', { class: 'grid' });
+  const logMin = logScale ? Math.log10(min) : 0;
+  const logMax = logScale ? Math.log10(max) : 0;
   for (let step = 0; step <= 4; step += 1) {
-    const value = min + ((max - min) * step) / 4;
+    const value = logScale ? 10 ** (logMin + ((logMax - logMin) * step) / 4) : min + ((max - min) * step) / 4;
     const y = yPrice(value);
     grid.append(el('line', { x1: 0, y1: y, x2: plotWidth, y2: y, class: 'grid-line' }));
     const label = el('text', { x: plotWidth + 6, y: y + 3.5, class: 'axis-label' });
@@ -659,6 +684,12 @@ export function renderChart(
     grid.append(label);
   }
   svg.append(grid);
+
+  if (logScale) {
+    const logBadge = el('text', { x: 4, y: PAD_TOP + 11, class: 'axis-label log-scale-badge' });
+    logBadge.textContent = '로그 스케일';
+    svg.append(logBadge);
+  }
 
   // ── 볼린저밴드 → 이동평균 → 캔들 순서로 겹친다 ─────────────
   const band = bandPath(view.upper, view.lower, xOf, yPrice);

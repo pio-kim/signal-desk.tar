@@ -1294,6 +1294,12 @@ main {
   opacity: 0.8;
 }
 
+.axis-label.log-scale-badge {
+  fill: #f7931a;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
 .pattern-line.neckline {
   stroke: #e6e6e6;
   stroke-width: 1.2;

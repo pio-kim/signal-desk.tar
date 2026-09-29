@@ -633,61 +633,61 @@ export function dateToUtcMs(dateStr) {
 }
 
 /**
- * 앵커들을 실제로 '선으로 연결'한다 — 최소자승 회귀가 아니라 인접한 두 앵커를
- * log10(가격) 공간에서 직선으로 잇는 구간별(piecewise) 선이다. 회귀로 하면
- * 세 점 중 어느 것도 정확히 지나지 않아(직접 계산해 보면 2018 저점을 38%나
- * 벗어난다) '저점을 연결한 선'이라는 요청과 어긋난다. 각 구간은 로그
- * 공간에서 직선으로 둔다 — 사이클 저점은 절대금액이 아니라 배율로 자란다고
- * 보는 것이 실측과 맞기 때문이다(152→3,122 는 약 20.5배, 3,122→15,460 은
- * 약 5.0배 — 등차가 아니라 둔화하는 등비다).
+ * 앵커들을 **하나의 직선**으로 잇는다 — 실제 비트코인 사이클 저점 추세선이
+ * 흔히 그려지는 방식 그대로다(TradingView 의 "Bitcoin Cycle Lows"·
+ * "Logarithmic Regression" 류 지표들이 공통으로 쓰는 방식: 가격축을 로그
+ * 스케일로 두고 그 위에서 저점들을 하나의 직선으로 잇는다 — 시간축은
+ * 그대로 두고 가격만 log10 을 취하면 지수 성장이 직선으로 펴진다).
  *
- * 마지막 앵커(2022 저점) 이후, 즉 미래 투영 구간은 **가장 최근 구간
- * (2018→2022)의 기울기**로 그대로 연장한다 — 오래된 2015→2018 구간까지
- * 섞어 평균 내면 지금과 무관해진 옛 추세가 최근 추세를 흐린다.
+ * 처음에는 각 앵커를 정확히 지나는 구간별(piecewise) 꺾은선으로 만들었으나,
+ * 실제 분석 관행과 어긋난다(사용자 확인 — 분석용 추세선은 꺾이지 않는
+ * 하나의 직선이어야 한다). 세 점을 최소자승으로 회귀하면 어느 점도 정확히
+ * 지나지는 않지만(직접 계산해 보면 2018 저점을 최대 40% 안팎 벗어난다),
+ * 이 정도 오차는 '세 점을 전부 지나는 직선은 존재할 수 없다'는 데서 오는
+ * 불가피한 근사다 — 가격축이 로그 스케일인 차트(chart.js 의 cycleActive
+ * 상태) 위에서는 이 회귀선이 실제로 곧게 뻗은 직선으로 그려진다.
  */
-function fitCycleLowCurve(anchors) {
-  const points = [...anchors]
-    .map((a) => ({ t: dateToUtcMs(a.date), y: Math.log10(a.usd) }))
-    .sort((a, b) => a.t - b.t);
-
-  const slopeOf = (a, b) => (b.y - a.y) / (b.t - a.t);
-  const valueOn = (a, b, ms) => 10 ** (a.y + slopeOf(a, b) * (ms - a.t));
-
-  return (ms) => {
-    if (ms <= points[0].t) return valueOn(points[0], points[1], ms);
-    for (let i = 0; i < points.length - 1; i += 1) {
-      if (ms <= points[i + 1].t || i === points.length - 2) {
-        return valueOn(points[i], points[i + 1], ms);
-      }
-    }
-    return 10 ** points.at(-1).y;
-  };
+function fitCycleLowLine(anchors) {
+  const points = anchors.map((a) => ({ t: dateToUtcMs(a.date), y: Math.log10(a.usd) }));
+  const n = points.length;
+  const meanT = points.reduce((sum, p) => sum + p.t, 0) / n;
+  const meanY = points.reduce((sum, p) => sum + p.y, 0) / n;
+  let num = 0;
+  let den = 0;
+  for (const p of points) {
+    num += (p.t - meanT) * (p.y - meanY);
+    den += (p.t - meanT) ** 2;
+  }
+  const slope = den === 0 ? 0 : num / den;
+  const intercept = meanY - slope * meanT;
+  return (ms) => 10 ** (slope * ms + intercept);
 }
 
-const cycleLowCurve = fitCycleLowCurve(HALVING_CYCLE_LOW_ANCHORS);
+const cycleLowLine = fitCycleLowLine(HALVING_CYCLE_LOW_ANCHORS);
 
 /** 임의 시각(ms)의 사이클 저점선 이론값(USD). 통화 환산·종목별 비례는 호출부 몫이다. */
 export function cycleLowValueUsd(ms) {
-  return cycleLowCurve(ms);
+  return cycleLowLine(ms);
 }
 
 /**
  * [fromMs, toMs] 구간을 일정 간격으로 샘플링한 사이클 저점선 '배율' 곡선.
  * 절대가격이 아니라 nowMs 시각 대비 배율을 내는 이유는, 이 선을 BTC 외
  * 종목에도 같은 모양으로 비례 환산해 그리기 위해서다(그 종목의 현재가 ×
- * 이 배율 = 그 종목 스케일의 저점선). 로그공간에서는 직선이지만 화면은
- * 선형 가격축이라 두 점이 아니라 여러 점을 내야 실제로는 휘어지는
- * 곡선으로 그려진다.
+ * 이 배율 = 그 종목 스케일의 저점선). 로그(가격)축 차트에서는 이 선이
+ * 직선이지만, 여러 점을 내는 이유는 호출부(chart.js)가 로그축이 아닌
+ * 화면에서도 같은 함수를 재사용할 수 있게 하기 위해서다 — 그런 화면에서는
+ * 휘어진 곡선으로 그려진다.
  *
  * @returns {Array<{ms, ratio}>} ratio = 그 시각의 저점선 / nowMs 시각의 저점선
  */
 export function cycleLowProjection(fromMs, toMs, nowMs, steps = 48) {
-  const baseline = cycleLowCurve(nowMs);
+  const baseline = cycleLowLine(nowMs);
   if (!(baseline > 0) || toMs <= fromMs) return [];
   const points = [];
   for (let i = 0; i <= steps; i += 1) {
     const ms = fromMs + ((toMs - fromMs) * i) / steps;
-    points.push({ ms, ratio: cycleLowCurve(ms) / baseline });
+    points.push({ ms, ratio: cycleLowLine(ms) / baseline });
   }
   return points;
 }

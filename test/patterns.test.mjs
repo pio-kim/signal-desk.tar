@@ -514,35 +514,37 @@ test('dateToUtcMs: YYYY-MM-DD 를 UTC 자정 ms로 바꾼다', () => {
   assert.equal(dateToUtcMs('2022-11-21'), Date.UTC(2022, 10, 21));
 });
 
-test('cycleLowValueUsd: 앵커 날짜에서는 그 앵커의 실측값을 정확히 낸다(연결선이므로 회귀 근사가 아니다)', () => {
+test('cycleLowValueUsd: 세 앵커를 하나의 직선(로그-선형 회귀)으로 근사한다 — 어느 점도 정확히 지나지는 않는다', () => {
+  // 세 점을 모두 지나는 직선은 수학적으로 존재하지 않는다(collinear 가 아니므로).
+  // 그래도 같은 자릿수(오더) 안에는 들어와야 '근사'라고 부를 수 있다.
   for (const anchor of HALVING_CYCLE_LOW_ANCHORS) {
-    near(cycleLowValueUsd(dateToUtcMs(anchor.date)), anchor.usd, 1e-6, anchor.date);
+    const fitted = cycleLowValueUsd(dateToUtcMs(anchor.date));
+    const ratio = fitted / anchor.usd;
+    assert.ok(ratio > 0.3 && ratio < 3, `${anchor.date} 근사치가 자릿수를 벗어남: 실측 ${anchor.usd}, 적합 ${fitted.toFixed(0)}`);
   }
 });
 
-test('cycleLowValueUsd: 두 앵커 사이는 로그공간에서 선형 보간된다', () => {
-  const [a, b] = HALVING_CYCLE_LOW_ANCHORS;
-  const midMs = (dateToUtcMs(a.date) + dateToUtcMs(b.date)) / 2;
-  const expected = Math.sqrt(a.usd * b.usd); // 로그 중점 = 기하평균
-  near(cycleLowValueUsd(midMs), expected, expected * 1e-6);
+test('cycleLowValueUsd: 로그 공간에서 정말로 하나의 직선이다 — 어느 구간에서 재도 연 성장률(배율)이 같다', () => {
+  // piecewise 로 되돌아가면(세그먼트마다 기울기가 다르면) 이 배율이 구간마다 달라진다.
+  // 진짜 한 직선(단일 회귀)이면 시간을 어디서 잘라도 같은 배율이 나와야 한다.
+  const yearGrowth = (fromDate) => {
+    const t = dateToUtcMs(fromDate);
+    return cycleLowValueUsd(t + 365 * DAY_MS) / cycleLowValueUsd(t);
+  };
+  const g1 = yearGrowth('2016-06-01'); // 2015→2018 구간 안
+  const g2 = yearGrowth('2020-06-01'); // 2018→2022 구간 안
+  const g3 = yearGrowth('2026-01-01'); // 2022 이후(미래 투영 구간)
+  near(g2, g1, g1 * 1e-9, '2015~2018 구간과 2018~2022 구간의 연 성장률');
+  near(g3, g1, g1 * 1e-9, '미래 투영 구간과 과거 구간의 연 성장률');
 });
 
-test('cycleLowValueUsd: 마지막 앵커 이후는 가장 최근 구간(2018→2022)의 기울기로 연장한다', () => {
-  const [, mid, last] = HALVING_CYCLE_LOW_ANCHORS;
-  const midMs = dateToUtcMs(mid.date);
-  const lastMs = dateToUtcMs(last.date);
-  const segmentSlope = (Math.log10(last.usd) - Math.log10(mid.usd)) / (lastMs - midMs);
-
-  const futureMs = lastMs + 365 * DAY_MS;
-  const expected = 10 ** (Math.log10(last.usd) + segmentSlope * (futureMs - lastMs));
-  near(cycleLowValueUsd(futureMs), expected, expected * 1e-6);
-});
-
-test('cycleLowValueUsd: 첫 앵커 이전도 값을 낸다(첫 구간 기울기로 역연장, 상수 함수처럼 끊기지 않는다)', () => {
-  const [first, second] = HALVING_CYCLE_LOW_ANCHORS;
-  const beforeMs = dateToUtcMs(first.date) - 365 * DAY_MS;
-  const value = cycleLowValueUsd(beforeMs);
-  assert.ok(value > 0 && value < first.usd, '첫 저점보다 앞선 시점은 첫 저점보다 낮아야 한다(우상향 곡선)');
+test('cycleLowValueUsd: 시간이 지날수록 계속 커진다(우상향 직선)', () => {
+  const samples = ['2013-01-01', '2015-01-14', '2017-01-01', '2018-12-15', '2021-01-01', '2022-11-21', '2026-01-01', '2027-01-01'].map(
+    (d) => cycleLowValueUsd(dateToUtcMs(d)),
+  );
+  for (let i = 1; i < samples.length; i += 1) {
+    assert.ok(samples[i] > samples[i - 1], `샘플 ${i} 는 이전보다 커야 한다`);
+  }
 });
 
 test('cycleLowProjection: 기준 시각(nowMs)의 배율은 항상 1이다', () => {
